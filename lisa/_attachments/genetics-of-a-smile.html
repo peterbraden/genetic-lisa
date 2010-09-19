@@ -3,8 +3,9 @@
 		<script src = './scripts/jquery.js'></script>
 		<script src = './scripts/plib.js'></script>
 		<style type = "text/css">
-body{padding:0; margin:0;}
+body{padding:0; margin:0; background-color:#000; color:#fff; font-family:Tahoma;}
 .strain, img {float:left; padding:5px;}	
+.strain p   {font-size:70%; font-family:monospace;}
 pre         {clear:both;}	
 		</style>
 		
@@ -112,16 +113,25 @@ smile.randomStrain = function(){
     return x;
 }
 
+smile.rev = false
 
 smile.saveStrain = function(strain){
-    var url = '/lisa/' + strain.id,
-        data = JSON.stringify({
+    var url = '/lisa/' + smile.breed;//strain.id,
+        data = {
+            'id' : strain.id,
             'dna' : strain.dna,
             'breed' : smile.breed,
-            'fitness' : strain._fitness
-            });
-        
-    $.ajax({type : 'PUT', url : url, data: data, success :  function(){}});
+            'fitness' : strain._fitness,
+            };
+            
+    if (smile.rev){
+        data['_rev'] = smile.rev;
+    }
+            
+    $.ajax({type : 'PUT', url : url, data: JSON.stringify(data), success :  function(resp){
+        if (resp.rev)
+            smile.rev = resp.rev
+    }, dataType : 'json'});
 
 }
 
@@ -164,6 +174,7 @@ $(function(){
     
     },GENERATION_POPULATION);
 
+    var prev = 0;
     
     
     var evolve = function(){
@@ -183,7 +194,11 @@ $(function(){
             return x._fitness > y._fitness?1:-1;
         })
         
-        smile.saveStrain(petri[0]);
+        if (petri[0].id != prev){
+            smile.saveStrain(petri[0]);
+            prev = petri[0].id
+        }
+        
         for(var i =1; i<petri.length; i++){
             petri[i] = smile.strain(petri[0].dna.slice(0));
             petri[i].mutate();
@@ -195,7 +210,6 @@ $(function(){
         generation ++;
         $("#generation").text(generation)
         if (Math.random() > CROSSBREED_THRESHOLD){
-            console.log("BREEDING");
             smile.breedIn(function(strain){
                 for(var i =1; i<petri.length; i++){
                     petri[i].breed(strain);
