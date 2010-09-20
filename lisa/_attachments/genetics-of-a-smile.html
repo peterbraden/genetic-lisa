@@ -235,8 +235,11 @@ $(function(){
 
 
     /* If url has strain, load it */
-    var s = document.location.href.indexOf("strain=");
-    s = s ? parseFloat(document.location.href.substr(s + 7)) : false;
+    var s = document.location.href.indexOf("breed=");
+    s = (s>=0) ? parseFloat(document.location.href.substr(s + 7)) : false;
+    $("#breed_id")
+        .html('<a href = "./genetics-of-a-smile.html?breed=' + smile.breed + '">Breed ' + (s?s:smile.breed) + "</a>");
+    
     
     if (s){
         smile.getStrain(s, function(str){
@@ -257,7 +260,7 @@ $(function(){
 
 	</head>
 	<body> 
-	    <h2 id="generation">0</h2>
+	    <h2 id= 'breed_id'></h2><h2 id="generation">0</h2>
         <div id = "strains"></div>
         <img id = "lisa" src = "./image/lisa.jpg" />
         <canvas id ='lisacanv'></canvas>
