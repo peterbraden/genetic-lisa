@@ -1,5 +1,6 @@
 <html> 
 	<head>
+	   <title>Genetic Lisa</title>
 		<script src = './scripts/jquery.js'></script>
 		<script src = './scripts/plib.js'></script>
 		<style type = "text/css">
@@ -143,8 +144,19 @@ smile.breedIn = function(cb){
     });
 }
 
+smile.getStrain = function(id, cb){
+    $.getJSON('/lisa/' + id, function(response){
+        cb(smile.strain(response.dna));
+    });
+}
 
 $(function(){
+
+
+
+    
+    
+    
     $("#lisa").load(function(){
     
     
@@ -220,8 +232,22 @@ $(function(){
             setTimeout(evolve, TIMEOUT);
         }       
     }
+
+
+    /* If url has strain, load it */
+    var s = document.location.href.indexOf("strain=");
+    s = s ? parseFloat(document.location.href.substr(s + 7)) : false;
     
-    evolve();
+    if (s){
+        smile.getStrain(s, function(str){
+            petri[0] = str
+            console.log(str);
+            evolve();
+        });
+    } else {
+        evolve()
+    }
+    
     
     });
 });
