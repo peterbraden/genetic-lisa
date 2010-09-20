@@ -31,11 +31,23 @@ smile.randomColor = function(){
 }
 
 
-smile.strain = function(dna){
+smile.strain = function(dna, parents, generation){
     
     var s = {};
     s.id = Math.random();
     s.dna = dna;
+    s.parents = parents || [];
+    s.generation = generation || 0
+    
+    //Dedupe parents
+    var t = []
+    for (var i = 0; i< s.parents.length; i++){
+        if (s.parents[i] in t)
+            continue
+        t.push(s.parents[i]);    
+    }
+    s.parents = t
+    
     
     s.fitness = function(canv, ctx, comp_data){
         if (s._fitness)
@@ -99,7 +111,8 @@ smile.strain = function(dna){
     s.breed = function(s2){
         for (var i = 0; i< (s2.dna.length/CROSSBREED_PROP); i++){
             s.dna[parseInt(Math.random() * s.dna.length-1)] = s2.dna[parseInt(Math.random() * s2.dna.length-1)]      
-        }  
+        }
+        s.parents.push(s2.id);  
     
     }
     
@@ -123,6 +136,8 @@ smile.saveStrain = function(strain){
             'dna' : strain.dna,
             'breed' : smile.breed,
             'fitness' : strain._fitness,
+            'parents' : strain.parents,
+            'generation' : smile.generation
             };
             
     if (smile.rev){
@@ -138,24 +153,27 @@ smile.saveStrain = function(strain){
 
 smile.breedIn = function(cb){
     $.getJSON('/lisa/_design/lisa/_view/random-strain', {limit:1}, function(response){
-        var s1 = response.rows[0].value;
-        var strain = smile.strain(s1);
+        var s1 = response.rows[0].value.dna,
+            parents = response.rows[0].value.parents,
+            generation = response.rows[0].value.generation;
+        var strain = smile.strain(s1, parents, generation);
         cb(strain)
     });
 }
 
 smile.getStrain = function(id, cb){
     $.getJSON('/lisa/' + id, function(response){
-        cb(smile.strain(response.dna));
+        cb(smile.strain(response.dna, response.parents || [], response.generation));
     });
 }
 
-$(function(){
+smile.generation = 0;
 
+smile.clone = function(strain){
+    return smile.strain(strain.dna.slice(0), strain.parents, strain.generation);
+}
 
-
-    
-    
+$(function(){  
     
     $("#lisa").load(function(){
     
@@ -163,8 +181,9 @@ $(function(){
     var petri = [],
         $strains = $("#strains"),
         lisa = $("#lisa")[0],
-        lisacanv =$("#lisacanv")[0],        
-        generation = 0;
+        lisacanv =$("#lisacanv")[0];        
+    
+    
         
     
 	lisacanv.width = lisa.width;
@@ -212,15 +231,15 @@ $(function(){
         }
         
         for(var i =1; i<petri.length; i++){
-            petri[i] = smile.strain(petri[0].dna.slice(0));
+            petri[i] = smile.clone(petri[0]);
             petri[i].mutate();
         }
         
 
         
            
-        generation ++;
-        $("#generation").text(generation)
+        smile.generation ++;
+        $("#generation").text(smile.generation)
         if (Math.random() > CROSSBREED_THRESHOLD){
             smile.breedIn(function(strain){
                 for(var i =1; i<petri.length; i++){
@@ -234,17 +253,18 @@ $(function(){
     }
 
 
-    /* If url has strain, load it */
+    /* If url has breed, load it */
     var s = document.location.href.indexOf("breed=");
     s = (s>=0) ? parseFloat(document.location.href.substr(s + 7)) : false;
     $("#breed_id")
-        .html('<a href = "./genetics-of-a-smile.html?breed=' + smile.breed + '">Breed ' + (s?s:smile.breed) + "</a>");
-    
+        .html('<a href = "./genetics-of-a-smile.html?breed=' + 
+            smile.breed + '">Breed ' + (s?s:smile.breed) + "</a>");
+            
     
     if (s){
         smile.getStrain(s, function(str){
             petri[0] = str
-            console.log(str);
+            smile.generation = str.generation || 0;
             evolve();
         });
     } else {

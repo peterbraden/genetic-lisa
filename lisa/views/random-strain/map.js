@@ -1,3 +1,3 @@
 function(doc) {
-    emit(Math.random(), doc.dna);
+    emit(Math.random(), doc);
 };
