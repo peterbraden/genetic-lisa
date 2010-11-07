@@ -35,4 +35,10 @@ This time I'm using circles instead of ellipses. And I add the ability to cross 
 Check it out
 ------------
 
-Currently, I haven't been able to get my couchone database to be public, although this should be done in the next few days.
+<iframe src="http://peterbraden.couchone.com/lisa/_design/lisa/genetics-of-a-smile.html" />
+
+Running on couchone <a href = "http://peterbraden.couchone.com/lisa/_design/lisa/genetics-of-a-smile.html">here</a>.
+
+
+
+
