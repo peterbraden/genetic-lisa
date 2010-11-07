@@ -3,6 +3,8 @@
 body {
   font:1em Helvetica, sans-serif;
   padding:4px;
+  width:800px;
+  margin:0 auto;
 }
 
 h1 {
