@@ -3,8 +3,7 @@
 Various implementations of an evolutionary algorithm that aims to
 reproduce the Mona Lisa with overlapping translucent circles.
 
-## Introduction
-
+## 2009
 In December 2008, [Roger Alsing](http://rogeralsing.com/2008/12/07/genetic-programming-evolution-of-mona-lisa/)
 wrote a program that used a genetic algorithm to evolve an approximation of the
 mona lisa using 50 overlapping polygons. The results were very impressive and
