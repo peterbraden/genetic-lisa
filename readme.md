@@ -3,8 +3,6 @@
 Various implementations of an evolutionary algorithm that aims to
 reproduce the Mona Lisa with overlapping translucent circles.
 
-
-
 ## Introduction
 
 In December 2008, [Roger Alsing](http://rogeralsing.com/2008/12/07/genetic-programming-evolution-of-mona-lisa/)
@@ -43,6 +41,8 @@ satisfied, I abandoned the project.
 
 ![The result from the C Program](http://github.com/peterbraden/genetic-lisa/raw/master/images/19690.png)
 
+
+### 2010
 A year later I was playing with html5. I was interested in splitting computation
 between multiple browsers. One of my projects, a collaborative map-reduce
 raytracer, uses multiple browsers to render an image into canvas. I was excited by
@@ -57,9 +57,12 @@ javascript with the canvas.
 
 This time I used circles instead of ellipses. And I add the ability to cross
 breed between browsers. In 10,000 generations or so, I was getting interesting
-images. And this time, you can see the images evolving.
+images. And this time, you could see the images evolving.
 
+### 2017
 
-
+Sadly in the intervening period, couchone was bought by couchbase and I
+neglected to backup the data from the service. Sadly this means that the
+interesting results were lost.
 
 
