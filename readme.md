@@ -27,7 +27,7 @@ generations per hour. I experimented with generation populations, varying
 between 10 and 100 - it was interesting looking at how adjusting the parameters
 affected the speed at which the fitness improved.
 
-![One of the python versions](http://github.com/peterbraden/genetic-lisa/raw/master/images/mutation-64225.jpg)
+![One of the python versions](./images/mutation-64225.jpg)
 
 As the bottleneck in the program seemed to be the graphics library, I decided to
 rewrite the program in c, using arrays of pixels to manipulate so the fitness
@@ -39,7 +39,7 @@ Using a generation population of 100, in 19000 generations I had something that
 looked vaguely Da Vinciesque. If you squinted, it looked pretty good. Curiosity
 satisfied, I abandoned the project.
 
-![The result from the C Program](http://github.com/peterbraden/genetic-lisa/raw/master/images/19690.png)
+![The result from the C Program](./images/19690.png)
 
 
 ### 2010
