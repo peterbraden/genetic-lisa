@@ -1,0 +1,210 @@
+extern crate darwin_rs;
+extern crate rand;
+extern crate jpeg_decoder;
+
+#[macro_use]
+extern crate lazy_static;
+
+
+use jpeg_decoder::Decoder;
+use std::fs::File;
+use std::io::BufReader;
+
+use darwin_rs::{Individual, SimulationBuilder, PopulationBuilder};
+use rand::Rng;
+
+const WIDTH:f64 = 200.;
+const HEIGHT:f64 = 311.;
+const PIXELDEPTH:i32 = 3;
+const DIM:usize = WIDTH as usize * HEIGHT as usize;
+
+lazy_static! {
+	static ref LISA: Vec<u8> = Decoder::new(
+								 BufReader::new(
+									File::open("lisa.jpg").expect("failed to open file"))
+								 ).decode().expect("failed to decode image");
+}
+
+fn coord(x: i32, y: i32) -> i32 {
+	return (x * WIDTH as i32 + y) * PIXELDEPTH;
+}
+
+fn rand() -> f64 {
+	return rand::thread_rng().gen_range(0.,1.);
+}
+
+fn from_rgb(r:u32, g:u32, b: u32) -> f64 {
+	return (r << 16) as f64 + (g << 8) as f64 + b as f64;
+}
+
+fn color_add(c:f64, c2: f64, opacity: f64) -> f64 {
+	return c + (c2 * opacity);
+}
+
+fn r(c:f64) -> u8 {
+	((c as u32) >> 16 % 256) as u8
+}
+fn g(c:f64) -> u8 {
+	((c as u32) >> 8 % 256) as u8
+}
+fn b(c:f64) -> u8 {
+	((c as u32) % 256) as u8
+}
+
+#[derive(Debug, Clone)]
+struct Circle {
+	x: f64,
+	y: f64,
+	rad: f64,
+	color: f64,
+	opacity: f64,
+}
+
+impl Circle {
+	pub fn random() -> Circle {
+		Circle {
+			x: rand(),
+			y: rand(),
+			rad: rand(),
+			color: randColor(),
+			opacity: rand()
+		}
+	}
+}
+
+#[derive(Debug, Clone)]
+struct Canvas {
+	pixels: Vec<u8>
+}
+
+impl Canvas {
+	pub fn new() -> Canvas {
+		let mut vec =Vec::new();
+		for _ in LISA.iter() {
+			vec.push(0)
+		}
+		Canvas {
+			pixels: vec
+		}
+	}
+
+	pub fn draw(&mut self, c: &Circle) {
+		let xmin = - c.rad * WIDTH;
+		let xmax = c.rad * WIDTH;
+		let radrad = (c.rad * WIDTH) * (c.rad * WIDTH);
+
+		for x in (xmin as i32)..(xmax as i32) {
+			let height = (radrad - (x as f64 * x as f64)).sqrt();
+			for y in (-height as i32)..(height as i32) {
+				let i = coord(x + (c.x * WIDTH) as i32, y + (c.y* HEIGHT) as i32) as usize;
+
+				if x as f64 + c.x > 0. && y as f64 + c.y > 0. && i < DIM {
+					let color = from_rgb(self.pixels[i] as u32, self.pixels[i+1] as u32, self.pixels[i+2] as u32);
+					let newcolor = color_add(color, c.color, c.opacity);
+					self.pixels[i] = r(newcolor);
+					self.pixels[i + 1] = g(newcolor);
+					self.pixels[i + 2] = b(newcolor);
+				}
+			}
+		}
+
+		let mut total = 0.;
+		for x in 0..LISA.len() {
+			total += (self.pixels[x]) as f64;
+		}
+		print!("Drew to canvas, {} \n", total);
+	}
+
+	pub fn diff(&self) -> f64 {
+		let mut total = 0.;
+		for x in 0..LISA.len() {
+			total += (LISA[x] - self.pixels[x]) as f64;
+		}
+		print!("DIFF {:?} \n", total);
+		return total;
+	}
+}
+
+
+
+#[derive(Debug, Clone)]
+struct Lisa {
+	circles: Vec<Circle>
+}
+
+impl Lisa {
+	pub fn new() -> Lisa {
+		Lisa {
+			circles: Vec::new()
+		}
+
+	}
+}
+
+impl Individual for Lisa {
+    fn mutate(&mut self) {
+		if rand() < 1. {
+			print!("Add circle");
+			self.circles.push(Circle::random())
+		} else {
+			// TODO remove random
+			self.circles.pop();
+		}
+    }
+
+    fn calculate_fitness(&mut self) -> f64 {
+		let mut canv = Canvas::new();
+		for c in &self.circles {
+			canv.draw(c);
+		}
+		return canv.diff();
+    }
+
+    fn reset(&mut self) {
+		self.circles = Vec::new();
+    }
+}
+
+fn make_population(count: u32) -> Vec<Lisa> {
+	let mut result = Vec::new();
+
+    for _ in 0..count {
+        result.push(Lisa::new());
+	}
+	return result;
+}
+
+
+fn main() {
+
+	println!("Loaded lisa {:?}", LISA.len());
+
+
+	let my_pop = make_population(100);
+	let population = PopulationBuilder::<Lisa>::new()
+		.set_id(1)
+		.initial_population(&my_pop)
+		.increasing_exp_mutation_rate(1.03)
+		.reset_limit_increment(100)
+		.reset_limit_start(100)
+		.reset_limit_end(1000)
+		.finalize().unwrap();
+
+	let simulation = SimulationBuilder::<Lisa>::new()
+		.fitness(0.0)
+        .threads(2)
+        .add_population(population)
+		.finalize();
+
+
+	match simulation {
+		Err(e) => println!("unexpected error: {}", e),
+
+		Ok(mut simulation) => {
+			println!("Starting run");
+			simulation.run();
+			println!("finished run");
+			simulation.print_fitness();
+		}
+	}
+}

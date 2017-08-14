@@ -1,0 +1,15 @@
+[package]
+name = "lisa"
+version = "0.1.0"
+authors = ["Peter Braden <peterbraden@peterbraden.co.uk>"]
+
+[dependencies]
+darwin-rs = "0.4"
+rand = "*"
+"jpeg-decoder" = "*"
+lazy_static = "0.2.8"
+serde = "1.0.11"
+
+
+
+
