@@ -1,19 +1,17 @@
-use std::fs::File;
 extern crate darwin_rs;
 extern crate rand;
 extern crate jpeg_decoder;
 extern crate serde;
 extern crate serde_json;
-
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]
 extern crate serde_derive;
 
 use jpeg_decoder::Decoder;
+use std::fs::File;
 use std::io::BufReader;
 use std::fmt::Write;
-
 use darwin_rs::{Individual, SimulationBuilder, PopulationBuilder};
 use rand::Rng;
 
@@ -178,6 +176,14 @@ impl Lisa {
 			canv: Canvas::new()
 		}
 	}
+    pub fn create_with(data: Vec<Circle>) -> Lisa {
+        let mut res = Lisa {
+            circles: data,
+            canv: Canvas::new()
+        };
+        res.draw();
+        return res;
+    }
 
 	pub fn svg(&self) -> String {
 		let mut out = String::new();
@@ -202,7 +208,7 @@ impl Lisa {
 
 impl Individual for Lisa {
     fn mutate(&mut self) {
-		if rand() < 0.5 {
+		if rand() < 0.2 {
 			self.circles.push(Circle::random());
 		}
 
@@ -213,11 +219,21 @@ impl Individual for Lisa {
 
         match rand::thread_rng().choose_mut(&mut self.circles) {
             Some(m) => {
-                m.color = m.color.saturating_add(((rand() - 0.5) * 10.) as u32);
-                m.x += (rand() - 0.5) * 0.01;
-                m.y += (rand() - 0.5) * 0.01;
-                m.opacity += (rand() - 0.5) * 0.01;
-                m.rad += (rand() - 0.5) * 0.01;
+                if rand() < 0.2 {
+                    m.color = m.color.saturating_add(((rand() - 0.5) * 10.) as u32);
+                }
+                if rand() < 0.2 {
+                    m.x += (rand() - 0.5) * 0.01;
+                }
+                if rand() < 0.2 {
+                    m.y += (rand() - 0.5) * 0.01;
+                }
+                if rand() < 0.2 {
+                    m.opacity += (rand() - 0.5) * 0.01;
+                }
+                if rand() < 0.2 {
+                    m.rad += (rand() - 0.5) * 0.01;
+                }
             },
             None => {}
         }
@@ -260,10 +276,23 @@ fn make_population(count: u32) -> Vec<Lisa> {
 	return result;
 }
 
+fn make_population_from_file(count: u32, path: &str) -> Vec<Lisa> {
+	let mut result = Vec::new();
+    let f = File::open(path).unwrap();
+    let saved: Vec<Circle> = serde_json::from_reader(f).unwrap();
+
+    for _ in 0..count {
+        let mut x = Lisa::create_with(saved.clone());
+        x.mutate();
+        result.push(x);
+	}
+	return result;
+}
 
 fn main() {
 	println!("Loaded source image {}x{}", LISA.width, LISA.height);
-	let my_pop = make_population(100);
+	//let my_pop = make_population(100);
+	let my_pop = make_population_from_file(100, "best.json");
 	println!("Allocated individuals");
 	let population = PopulationBuilder::<Lisa>::new()
 		.set_id(1)
