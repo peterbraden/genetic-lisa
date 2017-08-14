@@ -1,15 +1,16 @@
+use std::fs::File;
 extern crate darwin_rs;
 extern crate rand;
 extern crate jpeg_decoder;
-extern crate serde_derive;
 extern crate serde;
+extern crate serde_json;
 
 #[macro_use]
 extern crate lazy_static;
-extern crate serde_json;
+#[macro_use]
+extern crate serde_derive;
 
 use jpeg_decoder::Decoder;
-use std::fs::File;
 use std::io::BufReader;
 use std::fmt::Write;
 
@@ -29,6 +30,7 @@ fn coord(x: i32, y: i32) -> i32 {
 fn rand() -> f64 {
 	return rand::thread_rng().gen_range(0.,1.);
 }
+
 fn rand_color() -> u32 {
 	return rand::thread_rng().gen();
 }
@@ -73,7 +75,7 @@ impl Context {
 	}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Circle {
 	x: f64,
 	y: f64,
@@ -94,27 +96,28 @@ impl Circle {
 	}
 
 	pub fn svg(&self) -> String {
+        let ctx = &LISA;
 		let mut out = String::new();
 		let mut fill = String::new();
-		let cx = self.x * LISA.width as f64;
-		let cy = self.y * LISA.height as f64;
-		let r = self.rad * LISA.width as f64;
+		let cx = self.x * ctx.width as f64;
+		let cy = self.y * ctx.height as f64;
+		let rad = self.rad * ctx.width as f64;
 		write!(&mut fill, "rgba({},{},{},{})", r(self.color), g(self.color), b(self.color), self.opacity)
 			.expect("String concat failed");
-		write!(&mut out, "<circle cx='{}' cy='{}' r='{}' fill='{}' />", cx, cy, r, fill)
+		write!(&mut out, "<circle cx='{}' cy='{}' r='{}' fill='{}' />", cx, cy, rad, fill)
 			.expect("String concat failed");
 		return out;
 	}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Canvas {
 	pixels: Vec<u8>
 }
 
 impl Canvas {
 	pub fn new() -> Canvas {
-		let mut vec =Vec::with_capacity((LISA.width * LISA.height) as usize);
+		let mut vec =Vec::with_capacity(LISA.image.len());
 		for _ in LISA.image.iter() {
 			vec.push(0)
 		}
@@ -151,12 +154,12 @@ impl Canvas {
 	}
 
 	pub fn diff(&self) -> f64 {
-		let mut total = 0.;
+		let mut total = 0;
 		for x in 0..LISA.image.len() {
-			let diff = LISA.image[x] as f64 - self.pixels[x] as f64;
+			let diff = LISA.image[x] as i32 - self.pixels[x] as i32;
 			total += diff * diff;
 		}
-		return total;
+		return total as f64;
 	}
 }
 
@@ -182,7 +185,10 @@ impl Lisa {
 		for c in &self.circles {
 			contents.push_str(&c.svg());
 		}
-		write!(&mut out, "<svg>{}</svg>", contents).expect("String concat failed");
+        let svgprelude = "svg xmlns='http://www.w3.org/2000/svg' style='background-color: #000;'";
+		write!(&mut out, "<{} viewBox='0 0 {} {}' >{}</svg>",
+                svgprelude, LISA.width, LISA.height, contents)
+                .expect("String concat failed");
 		return out;
 	}
 
@@ -192,37 +198,54 @@ impl Lisa {
 			self.canv.draw(c);
 		}
 	}
-
-	pub fn draw_latest(&mut self) {
-		// Assumes canvas has all of the circles except the last.
-		self.canv.draw(self.circles.last().unwrap())
-	}
 }
 
 impl Individual for Lisa {
     fn mutate(&mut self) {
-		if rand() < 0.7 {
+		if rand() < 0.5 {
 			self.circles.push(Circle::random());
-			self.draw_latest();
-		} else {
-			// TODO remove random
-			self.circles.pop();
-			self.draw();
 		}
+
+        // remove random elements
+		if rand() < 0.2 && self.circles.len() > 0 {
+            self.circles.retain(|_| rand() > 0.1 );
+		}
+
+        match rand::thread_rng().choose_mut(&mut self.circles) {
+            Some(m) => {
+                m.color = m.color.saturating_add(((rand() - 0.5) * 10.) as u32);
+                m.x += (rand() - 0.5) * 0.01;
+                m.y += (rand() - 0.5) * 0.01;
+                m.opacity += (rand() - 0.5) * 0.01;
+                m.rad += (rand() - 0.5) * 0.01;
+            },
+            None => {}
+        }
+
+		self.draw() ;
     }
 
     fn calculate_fitness(&mut self) -> f64 {
-		let fitness = self.canv.diff() * (self.circles.len() as f64 + 1.);
-		print!(".");
+		let fitness = self.canv.diff() * (1. + 0.001 * (self.circles.len() as f64));
+        // Pixel difference * 100% + 0.1% per circle
+		//print!(". {}\n", fitness);
 		return fitness;
     }
 
     fn reset(&mut self) {
 		self.circles = Vec::new();
+		self.canv.wipe();
     }
 
 	fn new_fittest_found(&mut self) {
-		print!("New fittest: {:?} {}", self.calculate_fitness(), self.svg());
+		print!("\nNew fittest: {:?} {}", self.calculate_fitness(), self.circles.len());
+        let mut svg = File::create("best.svg").unwrap();
+        std::io::Write::write_all(&mut svg, self.svg().as_bytes()).expect("couldn't write");
+
+        let mut jsonfile = File::create("best.json").unwrap();
+        std::io::Write::write_all(&mut jsonfile,
+                serde_json::to_string(&self.circles).expect("Serialize error").as_bytes()
+            ).expect("couldn't write json");
     }
 }
 
@@ -230,7 +253,9 @@ fn make_population(count: u32) -> Vec<Lisa> {
 	let mut result = Vec::new();
 
     for _ in 0..count {
-        result.push(Lisa::new());
+        let mut x = Lisa::new();
+        x.mutate();
+        result.push(x);
 	}
 	return result;
 }
@@ -250,8 +275,7 @@ fn main() {
 		.finalize().unwrap();
 	println!("Built population");
 	let simulation = SimulationBuilder::<Lisa>::new()
-		//.fitness(0.0)
-		.factor(0.5)
+		.fitness(0.0)
         .threads(2)
         .add_population(population)
 		.finalize();
