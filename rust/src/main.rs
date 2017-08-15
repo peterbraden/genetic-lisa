@@ -154,11 +154,25 @@ impl Canvas {
 	pub fn diff(&self) -> f64 {
 		let mut total = 0;
 		for x in 0..LISA.image.len() {
-			let diff = LISA.image[x] as i32 - self.pixels[x] as i32;
-			total += diff * diff;
+			let pixdiff = LISA.image[x] as i32 - self.pixels[x] as i32;
+			total += pixdiff * pixdiff;
 		}
 		return total as f64;
 	}
+
+    pub fn to_pixels(&self) -> Vec<u32> {
+        let mut out: Vec<u32> = Vec::new();
+        for x in 0..LISA.width {
+            for y in 0..LISA.height {
+                let i = coord(x as i32, y as i32) as usize;
+                let mut pix = self.pixels [i + 2] as u32;
+                pix += (self.pixels [i + 1] as u32) << 8;
+                pix += (self.pixels [i] as u32) << 16;
+                out.push(pix);
+            }
+        }
+        return out;
+    }
 }
 
 
@@ -191,8 +205,8 @@ impl Lisa {
 		for c in &self.circles {
 			contents.push_str(&c.svg());
 		}
-        let svgprelude = "svg xmlns='http://www.w3.org/2000/svg' style='background-color: #000;'";
-		write!(&mut out, "<{} viewBox='0 0 {} {}' >{}</svg>",
+        let svgprelude = "svg xmlns='http://www.w3.org/2000/svg' style='background-color: #000;' ";
+		write!(&mut out, "<{} width='{}' height='{}' >{}</svg>",
                 svgprelude, LISA.width, LISA.height, contents)
                 .expect("String concat failed");
 		return out;
@@ -204,6 +218,7 @@ impl Lisa {
 			self.canv.draw(c);
 		}
 	}
+
 }
 
 impl Individual for Lisa {
@@ -217,33 +232,35 @@ impl Individual for Lisa {
             self.circles.retain(|_| rand() > 0.1 );
 		}
 
-        match rand::thread_rng().choose_mut(&mut self.circles) {
-            Some(m) => {
-                if rand() < 0.2 {
-                    m.color = m.color.saturating_add(((rand() - 0.5) * 10.) as u32);
-                }
-                if rand() < 0.2 {
-                    m.x += (rand() - 0.5) * 0.01;
-                }
-                if rand() < 0.2 {
-                    m.y += (rand() - 0.5) * 0.01;
-                }
-                if rand() < 0.2 {
-                    m.opacity += (rand() - 0.5) * 0.01;
-                }
-                if rand() < 0.2 {
-                    m.rad += (rand() - 0.5) * 0.01;
-                }
-            },
-            None => {}
+        if rand() < 0.8 {
+            match rand::thread_rng().choose_mut(&mut self.circles) {
+                Some(m) => {
+                    if rand() < 0.2 {
+                        m.color = rand_color();
+                    }
+                    if rand() < 0.2 {
+                        m.x += (rand() - 0.5) * 0.1;
+                    }
+                    if rand() < 0.2 {
+                        m.y += (rand() - 0.5) * 0.1;
+                    }
+                    if rand() < 0.2 {
+                        m.opacity += (rand() - 0.5) * 0.1;
+                    }
+                    if rand() < 0.2 {
+                        m.rad += (rand() - 0.5) * 0.1;
+                    }
+                },
+                None => {}
+            }
         }
 
-		self.draw() ;
+		self.draw();
     }
 
     fn calculate_fitness(&mut self) -> f64 {
-		let fitness = self.canv.diff() * (1. + 0.001 * (self.circles.len() as f64));
-        // Pixel difference * 100% + 0.1% per circle
+		let fitness = self.canv.diff() * (1. + 0.0001 * (self.circles.len() as f64));
+        // Pixel difference * 100% + 0.01% per circle
 		//print!(". {}\n", fitness);
 		return fitness;
     }
@@ -292,15 +309,15 @@ fn make_population_from_file(count: u32, path: &str) -> Vec<Lisa> {
 fn main() {
 	println!("Loaded source image {}x{}", LISA.width, LISA.height);
 	//let my_pop = make_population(100);
-	let my_pop = make_population_from_file(100, "best.json");
+	let my_pop = make_population_from_file(10, "best.json");
 	println!("Allocated individuals");
 	let population = PopulationBuilder::<Lisa>::new()
 		.set_id(1)
 		.initial_population(&my_pop)
-		.increasing_exp_mutation_rate(1.03)
+		.increasing_exp_mutation_rate(1.05)
 		.reset_limit_increment(100)
 		.reset_limit_start(100)
-		.reset_limit_end(1000)
+		.reset_limit_end(0)
 		.finalize().unwrap();
 	println!("Built population");
 	let simulation = SimulationBuilder::<Lisa>::new()
