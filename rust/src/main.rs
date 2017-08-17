@@ -136,25 +136,24 @@ impl Canvas {
 	}
 
 	pub fn draw(&mut self, c: &Circle) {
-        let rad = c.rad * LISA.width as f64;
-        let cx = c.x * LISA.width as f64;
-        let cy = c.x * LISA.height as f64;
+        let rad = (c.rad * LISA.width as f64) as i32;
+        let cx = (c.x * LISA.width as f64) as i32;
+        let cy = (c.x * LISA.height as f64) as i32;
 		let radrad = rad * rad;
 
 		for x in (- rad as i32)..(rad as i32) {
-			let height = (radrad - (x as f64 * x as f64)).sqrt();
-			for y in (-height as i32)..(height as i32) {
-				let i = coord(x + cx as i32, y + cy as i32);
+			for y in (-rad as i32)..(rad as i32) {
+                if x*x + y*y <= radrad {
+			        let i = coord(x + cx as i32, y + cy as i32);
+                    if i < (LISA.width * LISA.height * PIXELDEPTH) as usize {
+					    let color = from_rgb(self.pixels[i] as u32, self.pixels[i+1] as u32, self.pixels[i+2] as u32);
+					    let newcolor = color_add(color, c.color, c.opacity);
+					    self.pixels[i] = r(newcolor);
+					    self.pixels[i + 1] = g(newcolor);
+					    self.pixels[i + 2] = b(newcolor);
+				    }
+                }
 
-				if x as f64 + cx > 0. &&
-                   y as f64 + cy > 0. &&
-                   i < (LISA.width * LISA.height * PIXELDEPTH) as usize {
-					let color = from_rgb(self.pixels[i] as u32, self.pixels[i+1] as u32, self.pixels[i+2] as u32);
-					let newcolor = color_add(color, c.color, c.opacity);
-					self.pixels[i] = r(newcolor);
-					self.pixels[i + 1] = g(newcolor);
-					self.pixels[i + 2] = b(newcolor);
-				}
 			}
 		}
 	}
