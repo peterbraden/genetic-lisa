@@ -4,7 +4,6 @@ extern crate jpeg_decoder;
 extern crate serde;
 extern crate serde_json;
 extern crate env_logger;
-#[macro_use] extern crate lazy_static;
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate clap;
 
@@ -15,50 +14,32 @@ use std::fmt::Write;
 use darwin_rs::{Individual, SimulationBuilder, PopulationBuilder};
 use rand::Rng;
 use clap::{Arg, App};
-
-const PIXELDEPTH:usize = 3;
-const WHITE:u32 = (256<<16) + (256<<8) + 256;
-
-
-lazy_static! {
-	static ref LISA: Context = Context::new("lisa.jpg");
-}
-
-fn coord(x: i32, y: i32) -> usize {
-	return ((x * LISA.width as i32 + y) * PIXELDEPTH as i32) as usize;
-}
+use std::sync::Arc;
 
 fn rand() -> f64 {
 	return rand::thread_rng().gen_range(0.,1.);
 }
 
-fn rand_color() -> u32 {
-	return rand::thread_rng().gen();
+fn randu8() -> u8 {
+	return rand::thread_rng().gen_range(0,255);
 }
 
-fn from_rgb(r:u32, g:u32, b: u32) -> u32 {
-	return (r << 16) + (g << 8) + b;
+fn rand_color_adjust(c:u8) -> u8 {
+	return c.saturating_add((rand() * 256.0) as u8);
 }
 
-fn color_add(c:u32, c2: u32, opacity: f64) -> u32 {
-	return c.saturating_add((c2 as f64 * opacity) as u32) % WHITE;
+fn color_add(c:u8, c2: u8, opacity: f64) -> u8 {
+	return c.saturating_add((c2 as f64 * opacity) as u8);
 }
 
-fn r(c:u32) -> u8 {
-	(c >> 16 % 256) as u8
-}
-fn g(c:u32) -> u8 {
-	(c >> 8 % 256) as u8
-}
-fn b(c:u32) -> u8 {
-	(c % 256) as u8
-}
-
+#[derive(Debug)]
 struct Context {
 	image: Vec<u8>,
-	width: usize,
-	height: usize,
-    format: jpeg_decoder::PixelFormat
+	width: i32,
+	height: i32,
+    depth: i32,
+    format: jpeg_decoder::PixelFormat,
+    mutations: u64
 }
 
 impl Context {
@@ -71,9 +52,11 @@ impl Context {
 
 		return Context {
 			image: image,
-			height: meta.height as usize,
-			width: meta.width as usize,
-            format: meta.pixel_format
+			height: meta.height as i32,
+			width: meta.width as i32,
+            depth: 3,
+            format: meta.pixel_format,
+            mutations: 0
 		};
 	}
 }
@@ -82,8 +65,10 @@ impl Context {
 struct Circle {
 	x: f64,
 	y: f64,
+    r: u8,
+    g: u8,
+    b: u8,
 	rad: f64,
-	color: u32,
 	opacity: f64,
 }
 
@@ -93,21 +78,24 @@ impl Circle {
 			x: rand(),
 			y: rand(),
 			rad: rand(),
-			color: rand_color(),
+            r: randu8(),
+            g: randu8(),
+            b: randu8(),
 			opacity: rand()
 		}
 	}
 
-	pub fn svg(&self) -> String {
-        let ctx = &LISA;
+	pub fn svg(&self, ctx: &Arc<Context>) -> String {
 		let mut out = String::new();
 		let mut fill = String::new();
 		let cx = self.x * ctx.width as f64;
 		let cy = self.y * ctx.height as f64;
 		let rad = self.rad * ctx.width as f64;
-		write!(&mut fill, "rgba({},{},{},{})", r(self.color), g(self.color), b(self.color), self.opacity)
+		write!(&mut fill, "rgba({},{},{},{})",
+                self.r, self.g, self.b, self.opacity)
 			.expect("String concat failed");
-		write!(&mut out, "<circle cx='{}' cy='{}' r='{}' fill='{}' />", cx, cy, rad, fill)
+		write!(&mut out, "<circle cx='{}' cy='{}' r='{}' fill='{}' />",
+                cx, cy, rad, fill)
 			.expect("String concat failed");
 		return out;
 	}
@@ -119,9 +107,9 @@ struct Canvas {
 }
 
 impl Canvas {
-	pub fn new() -> Canvas {
-		let mut vec =Vec::with_capacity(LISA.image.len());
-		for _ in LISA.image.iter() {
+	pub fn new(len: usize) -> Canvas {
+		let mut vec = Vec::with_capacity(len);
+		for _ in 0..len {
 			vec.push(0)
 		}
 		Canvas {
@@ -135,22 +123,20 @@ impl Canvas {
 		}
 	}
 
-	pub fn draw(&mut self, c: &Circle) {
-        let rad = (c.rad * LISA.width as f64) as i32;
-        let cx = (c.x * LISA.width as f64) as i32;
-        let cy = (c.x * LISA.height as f64) as i32;
+	pub fn draw(&mut self, c: &Circle, ctx: &Arc<Context>) {
+        let rad = (c.rad * ctx.width as f64) as i32;
+        let cx = (c.x * ctx.width as f64) as i32;
+        let cy = (c.x * ctx.height as f64) as i32;
 		let radrad = rad * rad;
 
 		for x in (- rad as i32)..(rad as i32) {
 			for y in (-rad as i32)..(rad as i32) {
                 if x*x + y*y <= radrad {
-			        let i = coord(x + cx as i32, y + cy as i32);
-                    if i < (LISA.width * LISA.height * PIXELDEPTH) as usize {
-					    let color = from_rgb(self.pixels[i] as u32, self.pixels[i+1] as u32, self.pixels[i+2] as u32);
-					    let newcolor = color_add(color, c.color, c.opacity);
-					    self.pixels[i] = r(newcolor);
-					    self.pixels[i + 1] = g(newcolor);
-					    self.pixels[i + 2] = b(newcolor);
+                    let i = (((x + cx) * ctx.width + (y + cy)) * ctx.depth) as usize;
+                    if i + 2 < self.pixels.len(){
+					    self.pixels[i]     = color_add(self.pixels[i],      c.r, c.opacity);
+					    self.pixels[i + 1] = color_add(self.pixels[i + 1],  c.g, c.opacity);
+					    self.pixels[i + 2] = color_add(self.pixels[i + 2],  c.b, c.opacity);
 				    }
                 }
 
@@ -158,10 +144,10 @@ impl Canvas {
 		}
 	}
 
-	pub fn diff(&self) -> f64 {
+	pub fn diff(&self, ctx: &Arc<Context>) -> f64 {
 		let mut total = 0.;
-		for x in 0..LISA.image.len() {
-			let pixdiff = LISA.image[x] as i32 - self.pixels[x] as i32;
+		for x in 0..ctx.image.len() {
+			let pixdiff = ctx.image[x] as i32 - self.pixels[x] as i32;
 			total += (pixdiff * pixdiff) as f64;
 		}
 		return total;
@@ -186,23 +172,29 @@ impl Canvas {
 
 
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 struct Lisa {
 	circles: Vec<Circle>,
-	canv: Canvas
+	canv: Canvas,
+    mutations: u64,
+    ctx: Arc<Context>
 }
 
 impl Lisa {
-	pub fn new() -> Lisa {
+	pub fn new(ctx:Arc<Context>) -> Lisa {
 		Lisa {
 			circles: Vec::new(),
-			canv: Canvas::new()
+			canv: Canvas::new(ctx.image.len() as usize),
+            mutations: 0,
+            ctx: ctx
 		}
 	}
-    pub fn create_with(data: Vec<Circle>) -> Lisa {
+    pub fn create_with(ctx:Arc<Context>, data: Vec<Circle>) -> Lisa {
         let res = Lisa {
             circles: data,
-            canv: Canvas::new()
+            canv: Canvas::new(ctx.image.len()),
+            mutations: 0,
+            ctx: ctx
         };
         return res;
     }
@@ -211,11 +203,11 @@ impl Lisa {
 		let mut out = String::new();
 		let mut contents = String::new();
 		for c in &self.circles {
-			contents.push_str(&c.svg());
+			contents.push_str(&c.svg(&self.ctx));
 		}
         let svgprelude = "svg xmlns='http://www.w3.org/2000/svg' style='background-color: #000;' ";
 		write!(&mut out, "<{} width='{}' height='{}' >{}</svg>",
-                svgprelude, LISA.width, LISA.height, contents)
+                svgprelude, self.ctx.width, self.ctx.height, contents)
                 .expect("String concat failed");
 		return out;
 	}
@@ -223,54 +215,80 @@ impl Lisa {
 	pub fn draw(&mut self) {
 		self.canv.wipe();
 		for c in &self.circles {
-			self.canv.draw(c);
+			self.canv.draw(c, &self.ctx);
 		}
 	}
+
+    // Assumes a len
+    fn remove_random(&mut self) -> Circle {
+        let i = (rand() * self.circles.len() as f64) as usize;
+        return self.circles.remove(i);
+    }
+
+    fn add_circle(&mut self) { 
+        self.circles.push(Circle::random());
+    }
+
+    fn remove_circle(&mut self) {
+        if self.circles.len() > 1 {
+            self.remove_random();
+        }
+    }
+
+    fn mutate_circle(&mut self) {
+        match rand::thread_rng().choose_mut(&mut self.circles) {
+            Some(m) => {
+                match rand() {
+                    0.0...0.1 => m.r = rand_color_adjust(m.r),
+                    0.1...0.2 => m.g = rand_color_adjust(m.g),
+                    0.2...0.3 => m.b = rand_color_adjust(m.b),
+                    0.3...0.4 => m.opacity += (rand() - 0.5) * 0.1,
+                    0.4...0.6 => m.x += (rand() - 0.5) * 0.1,
+                    0.6...0.8 => m.y += (rand() - 0.5) * 0.1,
+                    0.8...1.0 => m.rad += (rand() - 0.5) * 0.1,
+                    _ => panic!()
+                }
+            },
+            None => {}
+        }
+    }
+
+    fn merge_circles(&mut self) {
+        if self.circles.len() > 2 {
+            let d = self.remove_random();
+            match rand::thread_rng().choose_mut(&mut self.circles) {
+                Some(m) => {
+                    m.r = (m.r + d.r) / 2;
+                    m.g = (m.g + d.g) / 2;
+                    m.b = (m.b + d.b) / 2;
+                    m.x = (m.x + d.x) / 2.;
+                    m.y = (m.y + d.y) / 2.;
+                    m.rad = (m.rad + d.rad) / 2.;
+                    m.opacity = (m.opacity + d.opacity) / 2.;
+                },
+                None => panic!()
+            }
+        }
+    }
 
 }
 
 impl Individual for Lisa {
+
     fn mutate(&mut self) {
-        // Add circle
-		if rand() < 0.2 {
-			self.circles.push(Circle::random());
-		}
-
-        // remove random elements
-		if rand() < 0.2 && self.circles.len() > 0 {
-            self.circles.retain(|_| rand() > 0.1 );
-		}
-
-        // Mutate random circle
-        if rand() < 0.8 {
-            match rand::thread_rng().choose_mut(&mut self.circles) {
-                Some(m) => {
-                    if rand() < 0.2 {
-                        m.color = rand_color();
-                    }
-                    if rand() < 0.2 {
-                        m.x += (rand() - 0.5) * 0.1;
-                    }
-                    if rand() < 0.2 {
-                        m.y += (rand() - 0.5) * 0.1;
-                    }
-                    if rand() < 0.2 {
-                        m.opacity += (rand() - 0.5) * 0.1;
-                    }
-                    if rand() < 0.2 {
-                        m.rad += (rand() - 0.5) * 0.1;
-                    }
-                },
-                None => {}
-            }
+        match rand() {
+            0.0...0.3 => self.add_circle(),
+            0.3...0.4 => self.remove_circle(),
+            0.4...0.6 => self.merge_circles(),
+            0.6...1.0 => self.mutate_circle(),
+            _ => panic!()
         }
-
-        // Merge circles?
+        self.mutations += 1;
     }
 
     fn calculate_fitness(&mut self) -> f64 {
 		self.draw();
-		let fitness = self.canv.diff() * (1. + 0.0001 * (self.circles.len() as f64));
+		let fitness = self.canv.diff(&self.ctx) * (1. + 0.0001 * (self.circles.len() as f64));
         // Pixel difference * 100% + 0.01% per circle
 		return fitness;
     }
@@ -281,7 +299,8 @@ impl Individual for Lisa {
     }
 
 	fn new_fittest_found(&mut self) {
-		print!("\nNew fittest: {:.1} {}", self.calculate_fitness(), self.circles.len());
+		print!("New fittest: {:.1} ({} circles, {} mutations)\n",
+                self.calculate_fitness(), self.circles.len(), self.mutations);
         let mut svg = File::create("best.svg").unwrap();
         std::io::Write::write_all(&mut svg, self.svg().as_bytes()).expect("couldn't write");
 
@@ -292,32 +311,31 @@ impl Individual for Lisa {
     }
 }
 
-fn make_population(count: usize) -> Vec<Lisa> {
+fn make_population(count: usize, ctx: Arc<Context>) -> Vec<Lisa> {
 	let mut result = Vec::new();
 
     for _ in 0..count {
-        let mut x = Lisa::new();
+        let mut x = Lisa::new(ctx.clone());
         x.mutate();
         result.push(x);
 	}
 	return result;
 }
 
-fn make_population_from_file(count: usize, path: &str) -> Vec<Lisa> {
+fn make_population_from_file(count: usize, ctx: Arc<Context>, path: &str) -> Vec<Lisa> {
 	let mut result = Vec::new();
     let f = File::open(path).unwrap();
     let saved: Vec<Circle> = serde_json::from_reader(f).unwrap();
 
     for _ in 0..count {
-        let mut x = Lisa::create_with(saved.clone());
-        x.mutate();
-        result.push(x);
+        result.push(Lisa::create_with(ctx.clone(), saved.clone()));
 	}
 	return result;
 }
 
 fn main() {
-    env_logger::init();
+    env_logger::init().expect("logger couldn't init");
+
     let matches = App::new("Lisa")
                  .arg(Arg::with_name("population")
                     .short("p")
@@ -329,18 +347,19 @@ fn main() {
                     .takes_value(true))
                  .get_matches();
 
+    let ctx  = Arc::new(Context::new("lisa.jpg"));
     let population = value_t!(matches.value_of("population"), usize).unwrap_or(10);
     let growth = value_t!(matches.value_of("exponential-growth"), f64).unwrap_or(1.0);
     let start_with_best = matches.is_present("loadbest"); 
     let mut my_pop;
 
-	println!("# Loaded source image {}x{} {:?}", LISA.width, LISA.height, LISA.format);
+	println!("# Loaded source image {}x{} {:?}", ctx.width, ctx.height, ctx.format);
     if start_with_best {
-        my_pop = make_population_from_file(population, "best.json");
+        my_pop = make_population_from_file(population, ctx, "best.json");
         println!("# - Using previous best: {:.1}, {}",
                  my_pop[0].calculate_fitness(), my_pop[0].circles.len());
     } else {
-	    my_pop = make_population(population);
+	    my_pop = make_population(population, ctx);
     }
 	println!("# Allocated individuals");
 	let population = PopulationBuilder::<Lisa>::new()
