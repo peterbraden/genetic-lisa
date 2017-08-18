@@ -162,12 +162,27 @@ impl Canvas {
 }
 
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SerializedLisa {
+	circles: Vec<Circle>,
+    mutations: u64,
+    mutation_appends: u64,
+    mutation_pops: u64,
+    mutation_merges: u64,
+    mutation_changes: u64,
+}
 
 #[derive(Debug, Clone)]
 struct Lisa {
 	circles: Vec<Circle>,
 	canv: Canvas,
+
     mutations: u64,
+    mutation_appends: u64,
+    mutation_pops: u64,
+    mutation_merges: u64,
+    mutation_changes: u64,
+
     ctx: Arc<Context>
 }
 
@@ -177,14 +192,22 @@ impl Lisa {
 			circles: Vec::new(),
 			canv: Canvas::new(ctx.image.len() as usize),
             mutations: 0,
+            mutation_appends: 0,
+            mutation_pops: 0,
+            mutation_merges: 0,
+            mutation_changes: 0,
             ctx: ctx
 		}
 	}
-    pub fn create_with(ctx:Arc<Context>, data: Vec<Circle>) -> Lisa {
+    pub fn create_with(ctx:Arc<Context>, data: SerializedLisa) -> Lisa {
         let res = Lisa {
-            circles: data,
+            circles: data.circles,
             canv: Canvas::new(ctx.image.len()),
-            mutations: 0,
+            mutations: data.mutations,
+            mutation_appends: data.mutation_appends,
+            mutation_pops: data.mutation_pops,
+            mutation_merges: data.mutation_merges,
+            mutation_changes: data.mutation_changes,
             ctx: ctx
         };
         return res;
@@ -218,11 +241,13 @@ impl Lisa {
 
     fn add_circle(&mut self) { 
         self.circles.push(Circle::random());
+        self.mutation_appends += 1;
     }
 
     fn remove_circle(&mut self) {
         if self.circles.len() > 1 {
             self.remove_random();
+            self.mutation_pops += 1;
         }
     }
 
@@ -239,6 +264,7 @@ impl Lisa {
                     8...10 => m.rad += rand_adjust(m.opacity, 0.5, 0.01, 1.0),
                     _ => panic!()
                 }
+                self.mutation_changes += 1;
             },
             None => {}
         }
@@ -256,10 +282,32 @@ impl Lisa {
                     m.y = (m.y + d.y) / 2.;
                     m.rad = (m.rad + d.rad) / 2.;
                     m.opacity = m.opacity + d.opacity;
+
+                    self.mutation_merges += 1;
                 },
                 None => panic!()
             }
         }
+    }
+
+    fn serialize(&mut self) -> SerializedLisa {
+        SerializedLisa {
+            circles: self.circles.clone(),
+            mutations: self.mutations,
+            mutation_appends: self.mutation_appends,
+            mutation_pops: self.mutation_pops,
+            mutation_merges: self.mutation_merges,
+            mutation_changes: self.mutation_changes,
+        }
+    }
+
+    fn str(&mut self) -> String {
+		let mut out = String::new();
+		write!(&mut out, "[F:{:.1} ({} circ, {} mut: {}+ {}- {}<> {}~ )]",
+            self.calculate_fitness(), self.circles.len(), self.mutations,
+            self.mutation_appends, self.mutation_pops, self.mutation_merges, self.mutation_changes
+            ).expect("couldn't append string");
+        return out;
     }
 
 }
@@ -290,14 +338,13 @@ impl Individual for Lisa {
     }
 
 	fn new_fittest_found(&mut self) {
-		print!("New fittest: {:.1} ({} circles, {} mutations)\n",
-                self.calculate_fitness(), self.circles.len(), self.mutations);
+		print!("New fittest: {} \n", self.str());
         let mut svg = File::create("best.svg").unwrap();
         std::io::Write::write_all(&mut svg, self.svg().as_bytes()).expect("couldn't write");
 
         let mut jsonfile = File::create("best.json").unwrap();
         std::io::Write::write_all(&mut jsonfile,
-                serde_json::to_string(&self.circles).expect("Serialize error").as_bytes()
+                serde_json::to_string(&self.serialize()).expect("Serialize error").as_bytes()
             ).expect("couldn't write json");
 
         //image::save_buffer(&Path::new("best.png"), &self.canv.pixels.as_slice(), self.ctx.width as u32, self.ctx.height as u32, image::RGB(8)).unwrap()
@@ -318,7 +365,7 @@ fn make_population(count: usize, ctx: Arc<Context>) -> Vec<Lisa> {
 fn make_population_from_file(count: usize, ctx: Arc<Context>, path: &str) -> Vec<Lisa> {
 	let mut result = Vec::new();
     let f = File::open(path).unwrap();
-    let saved: Vec<Circle> = serde_json::from_reader(f).unwrap();
+    let saved: SerializedLisa = serde_json::from_reader(f).unwrap();
 
     for _ in 0..count {
         result.push(Lisa::create_with(ctx.clone(), saved.clone()));
