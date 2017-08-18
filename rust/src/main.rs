@@ -6,6 +6,7 @@ extern crate serde_json;
 extern crate env_logger;
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate clap;
+//extern crate image;
 
 use jpeg_decoder::Decoder;
 use std::fs::File;
@@ -25,7 +26,11 @@ fn randu8() -> u8 {
 }
 
 fn rand_color_adjust(c:u8) -> u8 {
-	return c.saturating_add((rand() * 256.0) as u8);
+	return c.saturating_add(((rand() - 0.5) * 256.0) as u8);
+}
+
+fn rand_adjust(p:f64, range: f64, max:f64) -> f64 {
+    return (p + ((rand() - 0.5) * range)).min(max).max(0.);
 }
 
 fn color_add(c:u8, c2: u8, opacity: f64) -> u8 {
@@ -88,10 +93,10 @@ impl Circle {
 	pub fn svg(&self, ctx: &Arc<Context>) -> String {
 		let mut out = String::new();
 		let mut fill = String::new();
-		let cx = self.x * ctx.width as f64;
-		let cy = self.y * ctx.height as f64;
-		let rad = self.rad * ctx.width as f64;
-		write!(&mut fill, "rgba({},{},{},{})",
+		let cx = (self.x * ctx.width as f64) as i32;
+		let cy = (self.y * ctx.height as f64) as i32;
+		let rad = (self.rad * ctx.width as f64) as i32;
+		write!(&mut fill, "rgba({},{},{},{:.4})",
                 self.r, self.g, self.b, self.opacity)
 			.expect("String concat failed");
 		write!(&mut out, "<circle cx='{}' cy='{}' r='{}' fill='{}' />",
@@ -126,18 +131,26 @@ impl Canvas {
 	pub fn draw(&mut self, c: &Circle, ctx: &Arc<Context>) {
         let rad = (c.rad * ctx.width as f64) as i32;
         let cx = (c.x * ctx.width as f64) as i32;
-        let cy = (c.x * ctx.height as f64) as i32;
+        let cy = (c.y * ctx.height as f64) as i32;
 		let radrad = rad * rad;
 
-		for x in (- rad as i32)..(rad as i32) {
-			for y in (-rad as i32)..(rad as i32) {
+        //println!("- {} {}, {}", cx, cy, radrad);
+		for x in -rad .. rad {
+			for y in -rad .. rad {
                 if x*x + y*y <= radrad {
-                    let i = (((x + cx) * ctx.width + (y + cy)) * ctx.depth) as usize;
-                    if i + 2 < self.pixels.len(){
-					    self.pixels[i]     = color_add(self.pixels[i],      c.r, c.opacity);
-					    self.pixels[i + 1] = color_add(self.pixels[i + 1],  c.g, c.opacity);
-					    self.pixels[i + 2] = color_add(self.pixels[i + 2],  c.b, c.opacity);
-				    }
+                    let px = cx + x;
+                    let py = cy + y;
+                    if px >= 0 && px < ctx.width && py >= 0 && py < ctx.height {
+                        let i = (py * ctx.width + px) * ctx.depth;
+                        let is = i as usize;
+                        if is > self.pixels.len() - 2 {
+                            println!("ERROR {} {} {} {}, {}, {}", x, cx, y, cy, i, is);
+                        } else {
+                        self.pixels[is]     = color_add(self.pixels[is],      c.r, c.opacity);
+                        self.pixels[is + 1] = color_add(self.pixels[is + 1],  c.g, c.opacity);
+                        self.pixels[is + 2] = color_add(self.pixels[is + 2],  c.b, c.opacity);
+                        }
+                    }
                 }
 
 			}
@@ -152,22 +165,6 @@ impl Canvas {
 		}
 		return total;
 	}
-
-    /*
-    pub fn to_pixels(&self) -> Vec<u32> {
-        let mut out: Vec<u32> = Vec::new();
-        for x in 0..LISA.width {
-            for y in 0..LISA.height {
-                let i = coord(x as i32, y as i32) as usize;
-                let mut pix = self.pixels [i + 2] as u32;
-                pix += (self.pixels [i + 1] as u32) << 8;
-                pix += (self.pixels [i] as u32) << 16;
-                out.push(pix);
-            }
-        }
-        return out;
-    }
-    */
 }
 
 
@@ -242,10 +239,10 @@ impl Lisa {
                     0.0...0.1 => m.r = rand_color_adjust(m.r),
                     0.1...0.2 => m.g = rand_color_adjust(m.g),
                     0.2...0.3 => m.b = rand_color_adjust(m.b),
-                    0.3...0.4 => m.opacity += (rand() - 0.5) * 0.1,
-                    0.4...0.6 => m.x += (rand() - 0.5) * 0.1,
-                    0.6...0.8 => m.y += (rand() - 0.5) * 0.1,
-                    0.8...1.0 => m.rad += (rand() - 0.5) * 0.1,
+                    0.3...0.4 => m.opacity = rand_adjust(m.opacity, 0.1, 1.0),
+                    0.4...0.6 => m.x += rand_adjust(m.opacity, 0.5, 1.0),
+                    0.6...0.8 => m.y += rand_adjust(m.opacity, 0.5, 1.0),
+                    0.8...1.0 => m.rad += rand_adjust(m.opacity, 0.5, 1.0),
                     _ => panic!()
                 }
             },
@@ -258,13 +255,13 @@ impl Lisa {
             let d = self.remove_random();
             match rand::thread_rng().choose_mut(&mut self.circles) {
                 Some(m) => {
-                    m.r = (m.r + d.r) / 2;
-                    m.g = (m.g + d.g) / 2;
-                    m.b = (m.b + d.b) / 2;
+                    m.r = ((m.r as u32 + d.r as u32) / 2) as u8;
+                    m.g = ((m.g as u32 + d.g as u32) / 2) as u8;
+                    m.b = ((m.b as u32 + d.b as u32) / 2) as u8;
                     m.x = (m.x + d.x) / 2.;
                     m.y = (m.y + d.y) / 2.;
                     m.rad = (m.rad + d.rad) / 2.;
-                    m.opacity = (m.opacity + d.opacity) / 2.;
+                    m.opacity = (m.opacity + d.opacity);
                 },
                 None => panic!()
             }
@@ -308,6 +305,8 @@ impl Individual for Lisa {
         std::io::Write::write_all(&mut jsonfile,
                 serde_json::to_string(&self.circles).expect("Serialize error").as_bytes()
             ).expect("couldn't write json");
+
+        //image::save_buffer(&Path::new("best.png"), &self.canv.pixels.as_slice(), self.ctx.width as u32, self.ctx.height as u32, image::RGB(8)).unwrap()
     }
 }
 
