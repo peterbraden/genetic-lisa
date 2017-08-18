@@ -29,8 +29,8 @@ fn rand_color_adjust(c:u8) -> u8 {
 	return c.saturating_add(((rand() - 0.5) * 256.0) as u8);
 }
 
-fn rand_adjust(p:f64, range: f64, max:f64) -> f64 {
-    return (p + ((rand() - 0.5) * range)).min(max).max(0.);
+fn rand_adjust(p:f64, range: f64, min: f64, max:f64) -> f64 {
+    return (p + ((rand() - 0.5) * range)).min(max).max(min);
 }
 
 fn color_add(c:u8, c2: u8, opacity: f64) -> u8 {
@@ -134,22 +134,16 @@ impl Canvas {
         let cy = (c.y * ctx.height as f64) as i32;
 		let radrad = rad * rad;
 
-        //println!("- {} {}, {}", cx, cy, radrad);
 		for x in -rad .. rad {
 			for y in -rad .. rad {
                 if x*x + y*y <= radrad {
                     let px = cx + x;
                     let py = cy + y;
                     if px >= 0 && px < ctx.width && py >= 0 && py < ctx.height {
-                        let i = (py * ctx.width + px) * ctx.depth;
-                        let is = i as usize;
-                        if is > self.pixels.len() - 2 {
-                            println!("ERROR {} {} {} {}, {}, {}", x, cx, y, cy, i, is);
-                        } else {
-                        self.pixels[is]     = color_add(self.pixels[is],      c.r, c.opacity);
-                        self.pixels[is + 1] = color_add(self.pixels[is + 1],  c.g, c.opacity);
-                        self.pixels[is + 2] = color_add(self.pixels[is + 2],  c.b, c.opacity);
-                        }
+                        let i = ((py * ctx.width + px) * ctx.depth) as usize;
+                        self.pixels[i]     = color_add(self.pixels[i],      c.r, c.opacity);
+                        self.pixels[i + 1] = color_add(self.pixels[i + 1],  c.g, c.opacity);
+                        self.pixels[i + 2] = color_add(self.pixels[i + 2],  c.b, c.opacity);
                     }
                 }
 
@@ -235,14 +229,14 @@ impl Lisa {
     fn mutate_circle(&mut self) {
         match rand::thread_rng().choose_mut(&mut self.circles) {
             Some(m) => {
-                match rand() {
-                    0.0...0.1 => m.r = rand_color_adjust(m.r),
-                    0.1...0.2 => m.g = rand_color_adjust(m.g),
-                    0.2...0.3 => m.b = rand_color_adjust(m.b),
-                    0.3...0.4 => m.opacity = rand_adjust(m.opacity, 0.1, 1.0),
-                    0.4...0.6 => m.x += rand_adjust(m.opacity, 0.5, 1.0),
-                    0.6...0.8 => m.y += rand_adjust(m.opacity, 0.5, 1.0),
-                    0.8...1.0 => m.rad += rand_adjust(m.opacity, 0.5, 1.0),
+                match (rand() * 10.) as u8 {
+                    0...1 => m.r = rand_color_adjust(m.r),
+                    1...2 => m.g = rand_color_adjust(m.g),
+                    2...3 => m.b = rand_color_adjust(m.b),
+                    3...4 => m.opacity = rand_adjust(m.opacity, 0.1, 0., 1.0),
+                    4...6 => m.x += rand_adjust(m.opacity, 0.5, 0., 1.0),
+                    6...8 => m.y += rand_adjust(m.opacity, 0.5, 0., 1.0),
+                    8...10 => m.rad += rand_adjust(m.opacity, 0.5, 0.01, 1.0),
                     _ => panic!()
                 }
             },
@@ -261,7 +255,7 @@ impl Lisa {
                     m.x = (m.x + d.x) / 2.;
                     m.y = (m.y + d.y) / 2.;
                     m.rad = (m.rad + d.rad) / 2.;
-                    m.opacity = (m.opacity + d.opacity);
+                    m.opacity = m.opacity + d.opacity;
                 },
                 None => panic!()
             }
@@ -273,11 +267,11 @@ impl Lisa {
 impl Individual for Lisa {
 
     fn mutate(&mut self) {
-        match rand() {
-            0.0...0.3 => self.add_circle(),
-            0.3...0.4 => self.remove_circle(),
-            0.4...0.6 => self.merge_circles(),
-            0.6...1.0 => self.mutate_circle(),
+        match (rand() * 10.) as u8 {
+            0...3 => self.add_circle(),
+            3...4 => self.remove_circle(),
+            4...6 => self.merge_circles(),
+            6...10 => self.mutate_circle(),
             _ => panic!()
         }
         self.mutations += 1;
@@ -285,8 +279,8 @@ impl Individual for Lisa {
 
     fn calculate_fitness(&mut self) -> f64 {
 		self.draw();
-		let fitness = self.canv.diff(&self.ctx) * (1. + 0.0001 * (self.circles.len() as f64));
-        // Pixel difference * 100% + 0.01% per circle
+		let fitness = self.canv.diff(&self.ctx) * (1. + 0.001 * (self.circles.len() as f64));
+        // Pixel difference * 100% + 0.1% per circle
 		return fitness;
     }
 
