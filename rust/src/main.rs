@@ -34,7 +34,7 @@ fn rand_adjust(p:f64, range: f64, max:f64) -> f64 {
 }
 
 fn color_add(c:u8, c2: u8, opacity: f64) -> u8 {
-	return c.saturating_add((c2 as f64 * opacity) as u8);
+	return (c as f64 * (1. - opacity) + (c2 as f64 * opacity)).min(255.).max(0.) as u8;
 }
 
 #[derive(Debug)]
