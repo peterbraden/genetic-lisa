@@ -413,7 +413,7 @@ fn main() {
 	println!("# Built population");
 	let simulation = SimulationBuilder::<Lisa>::new()
 		.fitness(0.0)
-        .threads(2)
+        .threads(1)
         .add_population(population)
 		.finalize();
 	println!("# Initialized simulation");
