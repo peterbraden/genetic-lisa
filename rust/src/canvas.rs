@@ -2,40 +2,29 @@
 // Simple Raster Canvas implementation for fast in-memory
 // drawing and comparison.
 //
-extern crate rand;
-
+//extern crate image;
 use std::fmt::Write;
-use rand::Rng;
+use color::Color;
+use rando::{rand, rand_adjust, randu8};
 
-fn rand() -> f64 {
-	return rand::thread_rng().gen_range(0.,1.);
-}
-
-fn randu8() -> u8 {
-	return rand::thread_rng().gen_range(0,255);
-}
-
-fn rand_color_adjust(c:u8) -> u8 {
-	return c.saturating_add(((rand() - 0.5) * 256.0) as u8);
-}
-
-fn rand_adjust(p:f64, range: f64, min: f64, max:f64) -> f64 {
-    return (p + ((rand() - 0.5) * range)).min(max).max(min);
-}
 
 fn color_add(c:u8, c2: u8, opacity: f64) -> u8 {
 	return (c as f64 * (1. - opacity) + (c2 as f64 * opacity)).min(255.).max(0.) as u8;
+}
+
+pub trait Shape {
+    fn random() -> Self;
+    fn mutate(&mut self);
+    fn svg(&self) -> String;
+    fn draw_onto(&self, &mut Canvas);
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Circle {
 	pub x: f64,
 	pub y: f64,
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
 	pub rad: f64,
-	pub opacity: f64,
+    pub color: Color
 }
 
 impl Circle {
@@ -44,19 +33,18 @@ impl Circle {
 			x: rand(),
 			y: rand(),
 			rad: rand(),
-            r: randu8(),
-            g: randu8(),
-            b: randu8(),
-			opacity: rand()
+            color: Color {
+                r: randu8(),
+                g: randu8(),
+                b: randu8(),
+                opacity: rand()
+            }
 		}
 	}
 
     pub fn mutate(&mut self) {
         match (rand() * 10.) as u8 {
-            0...1 => self.r = rand_color_adjust(self.r),
-            1...2 => self.g = rand_color_adjust(self.g),
-            2...3 => self.b = rand_color_adjust(self.b),
-            3...4 => self.opacity = rand_adjust(self.opacity, 0.1, 0., 1.0),
+            0...4 => self.color = self.color.mutate(),
             4...6 => self.x += rand_adjust(self.x, 0.5, 0., 1.0),
             6...8 => self.y += rand_adjust(self.y, 0.5, 0., 1.0),
             8...10 => self.rad += rand_adjust(self.rad, 0.5, 0.01, 1.0),
@@ -64,20 +52,44 @@ impl Circle {
         }
     }
 
+    pub fn merge(&mut self, d: Circle) {
+        self.color = (&self.color + &d.color) * 0.5;
+        self.x = (self.x + d.x) / 2.;
+        self.y = (self.y + d.y) / 2.;
+        self.rad = (self.rad + d.rad) / 2.;
+    }
+
 	pub fn svg(&self, width: usize, height: usize) -> String {
 		let mut out = String::new();
-		let mut fill = String::new();
 		let cx = (self.x * width as f64) as i32;
 		let cy = (self.y * height as f64) as i32;
 		let rad = (self.rad * width as f64) as i32;
-		write!(&mut fill, "rgba({},{},{},{:.4})",
-                self.r, self.g, self.b, self.opacity)
-			.expect("String concat failed");
 		write!(&mut out, "<circle cx='{}' cy='{}' r='{}' fill='{}' />",
-                cx, cy, rad, fill)
+                cx, cy, rad, self.color.rgba())
 			.expect("String concat failed");
 		return out;
 	}
+
+    pub fn draw_onto(&self, mut canvas: &mut Canvas) {
+        let rad = (self.rad * canvas.width as f64) as i32;
+        let cx = (self.x * canvas.width as f64) as i32;
+        let cy = (self.y * canvas.height as f64) as i32;
+		let radrad = rad * rad;
+
+		for x in -rad .. rad {
+			for y in -rad .. rad {
+                if x*x + y*y <= radrad {
+                    let px = cx + x;
+                    let py = cy + y;
+                    if px >= 0 && px < canvas.width as i32 &&
+                       py >= 0 && py < canvas.height as i32 {
+                        canvas.add_pixel(px, py, &self.color);
+                    }
+                }
+
+			}
+		}
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,9 +124,9 @@ impl Canvas {
 		}
     }
 
-   // pub fn len(&self) -> usize {
-   //     self.pixels.len()
-   // }
+   pub fn len(&self) -> usize {
+        self.pixels.len()
+   }
 
 	pub fn wipe(&mut self) {
 		for x in 0..self.pixels.len() {
@@ -122,34 +134,14 @@ impl Canvas {
 		}
 	}
 
-	pub fn draw(&mut self, c: &Circle) {
-        let rad = (c.rad * self.width as f64) as i32;
-        let cx = (c.x * self.width as f64) as i32;
-        let cy = (c.y * self.height as f64) as i32;
-		let radrad = rad * rad;
-
-		for x in -rad .. rad {
-			for y in -rad .. rad {
-                if x*x + y*y <= radrad {
-                    let px = cx + x;
-                    let py = cy + y;
-                    if px >= 0 && px < self.width as i32 &&
-                       py >= 0 && py < self.height as i32 {
-                        self.add_pixel(px, py, c.r, c.g, c.b, c.opacity);
-                    }
-                }
-
-			}
-		}
-	}
-
-    pub fn add_pixel(&mut self, x: i32, y: i32, r: u8, g:u8, b:u8, opacity:f64) {
+    pub fn add_pixel(&mut self, x: i32, y: i32, color: &Color) {
         let i = ((y * self.width as i32 + x) * self.depth as i32) as usize;
-        self.pixels[i]     = color_add(self.pixels[i],      r, opacity);
-        self.pixels[i + 1] = color_add(self.pixels[i + 1],  g, opacity);
-        self.pixels[i + 2] = color_add(self.pixels[i + 2],  b, opacity);
+        self.pixels[i]     = color_add(self.pixels[i],      color.r, color.opacity);
+        self.pixels[i + 1] = color_add(self.pixels[i + 1],  color.g, color.opacity);
+        self.pixels[i + 2] = color_add(self.pixels[i + 2],  color.b, color.opacity);
     }
 
+    /// Pixel difference squared
 	pub fn diff(&self, canv: &Canvas) -> f64 {
 		let mut total = 0.;
 		for x in 0..canv.pixels.len() {
@@ -168,4 +160,29 @@ impl Canvas {
             self.height as u32, image::RGB(8)).unwrap()
     }
     */
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create(){
+        let c = Canvas::new(10, 10, 3);
+        assert_eq!(c.len(), 300);
+    }
+
+    #[test]
+    fn diff() {
+        let mut c = Canvas::new(10, 10, 3);
+        let c2 = Canvas::new(10, 10, 3);
+        c.add_pixel(0,0, &Color {r:255,g:0,b:0,opacity:1.});
+        assert_eq!(c2.diff(&c), 255. * 255.);
+        assert_eq!(c.diff(&c2), 255. * 255.);
+    }
+
+    #[test]
+    fn draw_shapes(){
+        let mut c = Canvas::new(10, 10, 3);
+        Circle::random().draw_onto(&mut c);
+    }
 }

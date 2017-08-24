@@ -1,28 +1,30 @@
+// Ideas
+// - Fitness weighting - weight important areas of the source image (faces etc) more heavily in the
+// fitness function.
+// - Different shapes
+// - Compare the gzipped SVG length to the source image length
+
 extern crate darwin_rs;
-extern crate rand;
 extern crate jpeg_decoder;
 extern crate serde;
 extern crate serde_json;
 extern crate env_logger;
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate clap;
-//extern crate image;
-//
+mod rando;
 mod canvas;
+mod color;
 
 use jpeg_decoder::Decoder;
 use std::fs::File;
 use std::io::BufReader;
 use std::fmt::Write;
 use darwin_rs::{Individual, SimulationBuilder, PopulationBuilder};
-use rand::Rng;
 use clap::{Arg, App};
 use std::sync::Arc;
 use canvas::{Canvas, Circle};
+use rando::{rand, choose};
 
-fn rand() -> f64 {
-	return rand::thread_rng().gen_range(0.,1.);
-}
 
 #[derive(Debug)]
 struct Context {
@@ -122,7 +124,7 @@ impl Lisa {
 	pub fn draw(&mut self) {
 		self.canv.wipe();
 		for c in &self.circles {
-			self.canv.draw(c);
+            c.draw_onto(&mut self.canv);
 		}
 	}
 
@@ -145,7 +147,7 @@ impl Lisa {
     }
 
     fn mutate_circle(&mut self) {
-        match rand::thread_rng().choose_mut(&mut self.circles) {
+        match choose(&mut self.circles) {
             Some(m) => {
                 m.mutate();
                 self.mutation_changes += 1;
@@ -157,16 +159,9 @@ impl Lisa {
     fn merge_circles(&mut self) {
         if self.circles.len() > 2 {
             let d = self.remove_random();
-            match rand::thread_rng().choose_mut(&mut self.circles) {
+            match choose(&mut self.circles) {
                 Some(m) => {
-                    m.r = ((m.r as u32 + d.r as u32) / 2) as u8;
-                    m.g = ((m.g as u32 + d.g as u32) / 2) as u8;
-                    m.b = ((m.b as u32 + d.b as u32) / 2) as u8;
-                    m.x = (m.x + d.x) / 2.;
-                    m.y = (m.y + d.y) / 2.;
-                    m.rad = (m.rad + d.rad) / 2.;
-                    m.opacity = m.opacity + d.opacity;
-
+                    m.merge(d);
                     self.mutation_merges += 1;
                 },
                 None => panic!()
