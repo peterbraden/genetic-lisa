@@ -11,9 +11,9 @@ extern crate serde_json;
 extern crate env_logger;
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate clap;
-mod rando;
-mod canvas;
-mod color;
+pub mod rando;
+pub mod canvas;
+pub mod color;
 
 use jpeg_decoder::Decoder;
 use std::fs::File;
@@ -22,18 +22,19 @@ use std::fmt::Write;
 use darwin_rs::{Individual, SimulationBuilder, PopulationBuilder};
 use clap::{Arg, App};
 use std::sync::Arc;
-use canvas::{Canvas, Circle};
+use canvas::{Canvas, Shape, Triangle, Circle};
 use rando::{rand, choose};
-
 
 #[derive(Debug)]
 struct Context {
 	image: Canvas,
+    weightings: Canvas,
 	width: i32,
 	height: i32,
     depth: i32,
     format: jpeg_decoder::PixelFormat,
-    mutations: u64
+    mutations: u64,
+    shape_multiplier: f64 // 50 = Circles only, 100 = Circles  + triangles
 }
 
 impl Context {
@@ -46,18 +47,30 @@ impl Context {
 
 		return Context {
 			image: Canvas::from(meta.width as usize, meta.height as usize, 3, image),
+            weightings: Canvas::new(meta.width as usize, meta.height as usize, 1),
 			height: meta.height as i32,
 			width: meta.width as i32,
             depth: 3,
             format: meta.pixel_format,
-            mutations: 0
+            mutations: 0,
+            shape_multiplier:100.
 		};
 	}
+
+    pub fn weight_entropy(&mut self) {
+        // Copy image
+        for i in 0..self.image.len() {
+            self.weightings.pixels[i] = self.image.pixels[i];
+        }
+        
+        self.weightings.save("weighting.png");
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SerializedLisa {
 	circles: Vec<Circle>,
+	triangles: Vec<Triangle>,
     mutations: u64,
     mutation_appends: u64,
     mutation_pops: u64,
@@ -68,6 +81,7 @@ struct SerializedLisa {
 #[derive(Debug, Clone)]
 struct Lisa {
 	circles: Vec<Circle>,
+	triangles: Vec<Triangle>,
 	canv: Canvas,
     mutations: u64,
     mutation_appends: u64,
@@ -81,6 +95,7 @@ impl Lisa {
 	pub fn new(ctx:Arc<Context>) -> Lisa {
 		Lisa {
 			circles: Vec::new(),
+			triangles: Vec::new(),
 			canv: Canvas::new(ctx.width as usize, 
                               ctx.height as usize, 
                               ctx.depth as usize),
@@ -95,6 +110,7 @@ impl Lisa {
     pub fn create_with(ctx:Arc<Context>, data: SerializedLisa) -> Lisa {
         let res = Lisa {
             circles: data.circles,
+            triangles: data.triangles,
             canv: Canvas::new(ctx.width as usize, 
                               ctx.height as usize, 
                               ctx.depth as usize),
@@ -114,6 +130,9 @@ impl Lisa {
 		for c in &self.circles {
 			contents.push_str(&c.svg(self.ctx.width as usize, self.ctx.height as usize));
 		}
+		for c in &self.triangles {
+			contents.push_str(&c.svg(self.ctx.width as usize, self.ctx.height as usize));
+		}
         let svgprelude = "svg xmlns='http://www.w3.org/2000/svg' style='background-color: #000;' ";
 		write!(&mut out, "<{} width='{}' height='{}' >{}</svg>",
                 svgprelude, self.ctx.width, self.ctx.height, contents)
@@ -126,12 +145,20 @@ impl Lisa {
 		for c in &self.circles {
             c.draw_onto(&mut self.canv);
 		}
+		for t in &self.triangles {
+            t.draw_onto(&mut self.canv);
+		}
 	}
 
     // Assumes a len
-    fn remove_random(&mut self) -> Circle {
+    fn remove_random_circle(&mut self) -> Circle {
         let i = (rand() * self.circles.len() as f64) as usize;
         return self.circles.remove(i);
+    }
+
+    fn remove_random_triangle(&mut self) -> Triangle {
+        let i = (rand() * self.triangles.len() as f64) as usize;
+        return self.triangles.remove(i);
     }
 
     fn add_circle(&mut self) { 
@@ -139,9 +166,21 @@ impl Lisa {
         self.mutation_appends += 1;
     }
 
+    fn add_triangle(&mut self) { 
+        self.triangles.push(Triangle::random());
+        self.mutation_appends += 1;
+    }
+
     fn remove_circle(&mut self) {
         if self.circles.len() > 1 {
-            self.remove_random();
+            self.remove_random_circle();
+            self.mutation_pops += 1;
+        }
+    }
+
+    fn remove_triangle(&mut self) {
+        if self.triangles.len() > 1 {
+            self.remove_random_triangle();
             self.mutation_pops += 1;
         }
     }
@@ -156,6 +195,17 @@ impl Lisa {
         }
     }
 
+    fn mutate_triangle(&mut self) {
+        match choose(&mut self.triangles) {
+            Some(m) => {
+                m.mutate();
+                self.mutation_changes += 1;
+            },
+            None => {}
+        }
+    }
+
+    /*
     fn merge_circles(&mut self) {
         if self.circles.len() > 2 {
             let d = self.remove_random();
@@ -168,10 +218,12 @@ impl Lisa {
             }
         }
     }
+    */
 
     fn serialize(&mut self) -> SerializedLisa {
         SerializedLisa {
             circles: self.circles.clone(),
+            triangles: self.triangles.clone(),
             mutations: self.mutations,
             mutation_appends: self.mutation_appends,
             mutation_pops: self.mutation_pops,
@@ -182,9 +234,9 @@ impl Lisa {
 
     fn str(&mut self) -> String {
 		let mut out = String::new();
-		write!(&mut out, "[F:{:.1} ({} circ, {} mut: {}+ {}- {}<> {}~ )]",
-            self.calculate_fitness(), self.circles.len(), self.mutations,
-            self.mutation_appends, self.mutation_pops, self.mutation_merges, self.mutation_changes
+		write!(&mut out, "[F:{:.1} ({} circ, {} tri, {} mut: {}+ {}- {}~ )]",
+            self.calculate_fitness(), self.circles.len(), self.triangles.len(), self.mutations,
+            self.mutation_appends, self.mutation_pops, self.mutation_changes
             ).expect("couldn't append string");
         return out;
     }
@@ -194,12 +246,15 @@ impl Lisa {
 impl Individual for Lisa {
 
     fn mutate(&mut self) {
-        match (rand() * 10.) as u8 {
-            0...3 => self.add_circle(),
-            3...4 => self.remove_circle(),
-            4...6 => self.merge_circles(),
-            6...10 => self.mutate_circle(),
-            _ => panic!()
+        match (rand() * self.ctx.shape_multiplier) as u8 {
+            0...15 => self.add_circle(),
+            15...30 => self.remove_circle(),
+            30...50 => self.mutate_circle(),
+
+            50...60 => self.add_triangle(),
+            60...70 => self.remove_triangle(),
+            70...100 => self.mutate_triangle(),
+            _ => panic!("Impossible mutation")
         }
         self.mutations += 1;
     }
@@ -225,6 +280,7 @@ impl Individual for Lisa {
         std::io::Write::write_all(&mut jsonfile,
                 serde_json::to_string(&self.serialize()).expect("Serialize error").as_bytes()
             ).expect("couldn't write json");
+        //self.canv.save();
     }
 }
 

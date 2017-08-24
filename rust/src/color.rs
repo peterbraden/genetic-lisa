@@ -3,6 +3,11 @@ use std::fmt;
 use std::ops::{Mul, Add};
 use rando::{rand, rand_adjust, rand_color_adjust};
 
+fn color_add(c:u8, c2: u8, opacity: f64) -> u8 {
+	return (c as f64 * (1. - opacity) +
+           (c2 as f64 * opacity)).min(255.).max(0.) as u8;
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Color {
     pub r: u8,
@@ -55,6 +60,11 @@ impl Color {
         }
     }
 
+    pub fn add_to_vec(&self, vec: &mut Vec<u8>, i: usize){
+        vec[i]     = color_add(vec[i],      self.r, self.opacity);
+        vec[i + 1] = color_add(vec[i + 1],  self.g, self.opacity);
+        vec[i + 2] = color_add(vec[i + 2],  self.b, self.opacity);
+    }
 }
 
 impl fmt::Display for Color {
