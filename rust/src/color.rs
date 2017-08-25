@@ -65,6 +65,10 @@ impl Color {
         vec[i + 1] = color_add(vec[i + 1],  self.g, self.opacity);
         vec[i + 2] = color_add(vec[i + 2],  self.b, self.opacity);
     }
+
+    pub fn black() -> Color {
+        Color {r:0,g:0,b:0,opacity:1.}
+    }
 }
 
 impl fmt::Display for Color {

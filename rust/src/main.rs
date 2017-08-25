@@ -14,6 +14,7 @@ extern crate env_logger;
 pub mod rando;
 pub mod canvas;
 pub mod color;
+pub mod shapes;
 
 use jpeg_decoder::Decoder;
 use std::fs::File;
@@ -22,8 +23,11 @@ use std::fmt::Write;
 use darwin_rs::{Individual, SimulationBuilder, PopulationBuilder};
 use clap::{Arg, App};
 use std::sync::Arc;
-use canvas::{Canvas, Shape, Triangle, Circle};
+use canvas::{Canvas};
 use rando::{rand, choose};
+use color::Color;
+use std::cmp::{min};
+use shapes::{Shape, Triangle, Circle};
 
 #[derive(Debug)]
 struct Context {
@@ -34,7 +38,8 @@ struct Context {
     depth: i32,
     format: jpeg_decoder::PixelFormat,
     mutations: u64,
-    shape_multiplier: f64 // 50 = Circles only, 100 = Circles  + triangles
+    shape_multiplier: f64,// 50 = Circles only, 100 = Circles  + triangles
+    use_weighting: bool
 }
 
 impl Context {
@@ -47,22 +52,30 @@ impl Context {
 
 		return Context {
 			image: Canvas::from(meta.width as usize, meta.height as usize, 3, image),
-            weightings: Canvas::new(meta.width as usize, meta.height as usize, 1),
+            weightings: Canvas::new(meta.width as usize, meta.height as usize, 3),
 			height: meta.height as i32,
 			width: meta.width as i32,
             depth: 3,
             format: meta.pixel_format,
             mutations: 0,
-            shape_multiplier:100.
+            shape_multiplier:100.,
+            use_weighting: false
 		};
 	}
 
     pub fn weight_entropy(&mut self) {
         // Copy image
-        for i in 0..self.image.len() {
-            self.weightings.pixels[i] = self.image.pixels[i];
+        for x in 0..self.width {
+            for y in 0..self.height {
+                let diff = min(((self.image.neighbors_diffsq(x, y, 1) / 10) as f64).sqrt() as i32, 255) as u8;
+                self.weightings.add_pixel(x, y, &Color {
+                                                    r: diff,
+                                                    g: diff,
+                                                    b: diff,
+                                                    opacity: 1.});
+            }
         }
-        
+
         self.weightings.save("weighting.png");
     }
 }
@@ -261,9 +274,15 @@ impl Individual for Lisa {
 
     fn calculate_fitness(&mut self) -> f64 {
 		self.draw();
-		let fitness = self.canv.diff(&self.ctx.image) * (1. + 0.001 * (self.circles.len() as f64));
-        // Pixel difference * 100% + 0.1% per circle
-		return fitness;
+        
+        if self.ctx.use_weighting {
+            let fitness = self.canv.weighted_diff(&self.ctx.image, &self.ctx.weightings, 0.01);
+		    return fitness * (1. + 0.001 * (self.circles.len() as f64));
+        } else {
+            // Pixel difference * 100% + 0.1% per circle
+            let fitness = self.canv.diff(&self.ctx.image);
+		    return fitness * (1. + 0.001 * (self.circles.len() as f64));
+        }
     }
 
     fn reset(&mut self) {
@@ -310,6 +329,9 @@ fn main() {
     env_logger::init().expect("logger couldn't init");
 
     let matches = App::new("Lisa")
+                 .arg(Arg::with_name("image")
+                    .short("i")
+                    .takes_value(true))
                  .arg(Arg::with_name("population")
                     .short("p")
                     .takes_value(true))
@@ -320,10 +342,16 @@ fn main() {
                     .takes_value(true))
                  .get_matches();
 
-    let ctx  = Arc::new(Context::new("lisa.jpg"));
     let population = value_t!(matches.value_of("population"), usize).unwrap_or(10);
     let growth = value_t!(matches.value_of("exponential-growth"), f64).unwrap_or(1.0);
     let start_with_best = matches.is_present("loadbest"); 
+    let image = value_t!(matches.value_of("image"), String).unwrap_or(String::from("lisa.jpg"));
+
+    let mut context = Context::new(&image);
+    if context.use_weighting {
+        context.weight_entropy();
+    }
+    let ctx = Arc::new(context);
     let mut my_pop;
 
 	println!("# Loaded source image {}x{} {:?}", ctx.width, ctx.height, ctx.format);
@@ -334,7 +362,7 @@ fn main() {
     } else {
 	    my_pop = make_population(population, ctx);
     }
-	println!("# Allocated individuals");
+	println!("# Allocated individuals: {}", population);
 	let population = PopulationBuilder::<Lisa>::new()
 		.set_id(1)
 		.initial_population(&my_pop)
