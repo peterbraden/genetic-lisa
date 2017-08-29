@@ -4,11 +4,116 @@ use color::Color;
 use std::fmt::Write;
 use std::cmp::{min, max};
 
-pub trait Shape {
-    fn random() -> Self;
+pub trait ShapeBehaviour {
     fn mutate(&mut self);
     fn svg(&self, width: usize, height: usize) -> String;
     fn draw_onto(&self, &mut Canvas);
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Shape {
+    Circle(Circle),
+    Rect(Rect),
+    Triangle(Triangle)
+}
+
+impl Shape {
+    pub fn random() -> Shape {
+        match (rand() * 10.) as u8 {
+            0...4 => { return Shape::Circle(Circle::random()) },
+            4...7 => { return Shape::Triangle(Triangle::random()) },
+            7...10 => { return Shape::Rect(Rect::random()) },
+            _ => panic!("Unknown shape")
+        }
+    
+    }
+
+    pub fn mutate(&mut self) {
+        match self {
+            &mut Shape::Triangle(ref mut t) => t.mutate(),
+            &mut Shape::Rect(ref mut r) => r.mutate(),
+            &mut Shape::Circle(ref mut c) => c.mutate()
+        }
+    }
+
+    pub fn svg(&self, width: usize, height: usize) -> String{
+        match self {
+            &Shape::Triangle(ref t) => t.svg(width, height),
+            &Shape::Rect(ref t) => t.svg(width, height),
+            &Shape::Circle(ref c) => c.svg(width, height)
+        }
+    }
+
+    pub fn draw_onto(&self, mut canv: &mut Canvas) {
+        match self {
+            &Shape::Triangle(ref t) => t.draw_onto(canv),
+            &Shape::Rect(ref t) => t.draw_onto(canv),
+            &Shape::Circle(ref c) => c.draw_onto(canv)
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Rect {
+    pub x1: f64,
+    pub x2: f64,
+    pub y1: f64,
+    pub y2: f64,
+    pub color: Color
+}
+
+impl Rect {
+    pub fn random() -> Rect {
+        Rect {
+            x1: rand(),
+            x2: rand(),
+            y1: rand(),
+            y2: rand(),
+            color: Color {
+                r: randu8(),
+                g: randu8(),
+                b: randu8(),
+                opacity: rand()
+            }
+        }
+    }
+}
+
+impl ShapeBehaviour for Rect {
+    fn mutate(&mut self) {
+        match (rand() * 100.) as u8 {
+            0...60 => self.color = self.color.mutate(),
+            60...70 => self.x1 += rand_adjust(self.x1, 0.5, 0., 1.0),
+            70...80 => self.y1 += rand_adjust(self.y1, 0.5, 0., 1.0),
+            80...90 => self.x2 += rand_adjust(self.x2, 0.5, 0., 1.0),
+            90...100 => self.y2 += rand_adjust(self.y2, 0.5, 0., 1.0),
+            _ => panic!()
+        }
+    }
+
+    fn svg(&self, width: usize, height: usize) -> String {
+		let mut out = String::new();
+		write!(&mut out, "<rect x='{}' y='{}' width='{}' height='{}' fill='{}' />",
+                (self.x1 * width as f64) as i32,
+                (self.y1 * height as f64) as i32,
+                ((self.x2 - self.x1) * width as f64) as i32,
+                ((self.y2 - self.y1) * height as f64) as i32,
+                self.color.rgba())
+			.expect("String concat failed");
+		return out;
+    }
+
+    fn draw_onto(&self, canv: &mut Canvas) {
+        let x1 = (self.x1 * canv.width as f64) as i32;
+        let y1 = (self.y1 * canv.height as f64) as i32;
+        let x2 = (self.x2 * canv.width as f64) as i32;
+        let y2 = (self.y2 * canv.height as f64) as i32;
+        for x in max(x1, 0) .. min(x2, canv.width as i32) {
+            for y in max(y1, 0) .. min(y2, canv.height as i32) {
+                canv.add_pixel(x, y, &self.color)
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,8 +127,8 @@ pub struct Triangle {
     pub color: Color
 }
 
-impl Shape for Triangle {
-    fn random() -> Triangle {
+impl Triangle {
+    pub fn random() -> Triangle {
         Triangle {
             x1: rand(),
             x2: rand(),
@@ -39,7 +144,9 @@ impl Shape for Triangle {
             }
         }
     }
+}
 
+impl ShapeBehaviour for Triangle {
     fn mutate(&mut self) {
         match (rand() * 100.) as u8 {
             0...40 => self.color = self.color.mutate(),
@@ -101,18 +208,7 @@ pub struct Circle {
 }
 
 impl Circle {
-    /*
-    pub fn merge(&mut self, d: Circle) {
-        self.color = (&self.color + &d.color) * 0.5;
-        self.x = (self.x + d.x) / 2.;
-        self.y = (self.y + d.y) / 2.;
-        self.rad = (self.rad + d.rad) / 2.;
-    }
-    */
-}
-
-impl Shape for Circle {
-	fn random() -> Circle {
+	pub fn random() -> Circle {
 		Circle {
 			x: rand(),
 			y: rand(),
@@ -126,6 +222,17 @@ impl Shape for Circle {
 		}
 	}
 
+    /*
+    pub fn merge(&mut self, d: Circle) {
+        self.color = (&self.color + &d.color) * 0.5;
+        self.x = (self.x + d.x) / 2.;
+        self.y = (self.y + d.y) / 2.;
+        self.rad = (self.rad + d.rad) / 2.;
+    }
+    */
+}
+
+impl ShapeBehaviour for Circle {
     fn mutate(&mut self) {
         match (rand() * 10.) as u8 {
             0...4 => self.color = self.color.mutate(),
@@ -169,6 +276,7 @@ impl Shape for Circle {
 		}
     }
 }
+
 
 #[cfg(test)]
 mod tests {

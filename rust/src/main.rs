@@ -1,20 +1,23 @@
 // Ideas
-// - Fitness weighting - weight important areas of the source image (faces etc) more heavily in the
 // fitness function.
 // - Different shapes
 // - Compare the gzipped SVG length to the source image length
+// - Divide and conquer by splitting image into small cells.
 
 extern crate darwin_rs;
 extern crate jpeg_decoder;
 extern crate serde;
 extern crate serde_json;
 extern crate env_logger;
+extern crate chrono;
+
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate clap;
 pub mod rando;
 pub mod canvas;
 pub mod color;
 pub mod shapes;
+pub mod shapelist;
 
 use jpeg_decoder::Decoder;
 use std::fs::File;
@@ -24,10 +27,10 @@ use darwin_rs::{Individual, SimulationBuilder, PopulationBuilder};
 use clap::{Arg, App};
 use std::sync::Arc;
 use canvas::{Canvas};
-use rando::{rand, choose};
+use rando::{rand};
 use color::Color;
 use std::cmp::{min};
-use shapes::{Shape, Triangle, Circle};
+use shapelist::{ShapeList};
 
 #[derive(Debug)]
 struct Context {
@@ -38,12 +41,11 @@ struct Context {
     depth: i32,
     format: jpeg_decoder::PixelFormat,
     mutations: u64,
-    shape_multiplier: f64,// 50 = Circles only, 100 = Circles  + triangles
     use_weighting: bool
 }
 
 impl Context {
-	pub fn new(name:&str) -> Context{
+	pub fn new(name:&str, use_weighting: bool) -> Context{
 		let f = File::open(name).expect("failed to open file");
 		let buf = BufReader::new(f);
 		let mut jpg = Decoder::new(buf);
@@ -58,8 +60,7 @@ impl Context {
             depth: 3,
             format: meta.pixel_format,
             mutations: 0,
-            shape_multiplier:100.,
-            use_weighting: false
+            use_weighting: use_weighting
 		};
 	}
 
@@ -82,8 +83,7 @@ impl Context {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SerializedLisa {
-	circles: Vec<Circle>,
-	triangles: Vec<Triangle>,
+	shapes: ShapeList,
     mutations: u64,
     mutation_appends: u64,
     mutation_pops: u64,
@@ -93,8 +93,7 @@ struct SerializedLisa {
 
 #[derive(Debug, Clone)]
 struct Lisa {
-	circles: Vec<Circle>,
-	triangles: Vec<Triangle>,
+	shapes: ShapeList,
 	canv: Canvas,
     mutations: u64,
     mutation_appends: u64,
@@ -107,8 +106,7 @@ struct Lisa {
 impl Lisa {
 	pub fn new(ctx:Arc<Context>) -> Lisa {
 		Lisa {
-			circles: Vec::new(),
-			triangles: Vec::new(),
+			shapes: ShapeList::new(),
 			canv: Canvas::new(ctx.width as usize, 
                               ctx.height as usize, 
                               ctx.depth as usize),
@@ -122,8 +120,7 @@ impl Lisa {
 	}
     pub fn create_with(ctx:Arc<Context>, data: SerializedLisa) -> Lisa {
         let res = Lisa {
-            circles: data.circles,
-            triangles: data.triangles,
+            shapes: data.shapes,
             canv: Canvas::new(ctx.width as usize, 
                               ctx.height as usize, 
                               ctx.depth as usize),
@@ -137,106 +134,18 @@ impl Lisa {
         return res;
     }
 
-	pub fn svg(&self) -> String {
-		let mut out = String::new();
-		let mut contents = String::new();
-		for c in &self.circles {
-			contents.push_str(&c.svg(self.ctx.width as usize, self.ctx.height as usize));
-		}
-		for c in &self.triangles {
-			contents.push_str(&c.svg(self.ctx.width as usize, self.ctx.height as usize));
-		}
-        let svgprelude = "svg xmlns='http://www.w3.org/2000/svg' style='background-color: #000;' ";
-		write!(&mut out, "<{} width='{}' height='{}' >{}</svg>",
-                svgprelude, self.ctx.width, self.ctx.height, contents)
-                .expect("String concat failed");
-		return out;
-	}
 
 	pub fn draw(&mut self) {
-		self.canv.wipe();
-		for c in &self.circles {
-            c.draw_onto(&mut self.canv);
-		}
-		for t in &self.triangles {
-            t.draw_onto(&mut self.canv);
-		}
+        self.shapes.draw_onto(&mut self.canv);
 	}
 
-    // Assumes a len
-    fn remove_random_circle(&mut self) -> Circle {
-        let i = (rand() * self.circles.len() as f64) as usize;
-        return self.circles.remove(i);
+    pub fn svg(&self) -> String{
+        return self.shapes.svg(self.ctx.width as usize, self.ctx.height as usize);
     }
-
-    fn remove_random_triangle(&mut self) -> Triangle {
-        let i = (rand() * self.triangles.len() as f64) as usize;
-        return self.triangles.remove(i);
-    }
-
-    fn add_circle(&mut self) { 
-        self.circles.push(Circle::random());
-        self.mutation_appends += 1;
-    }
-
-    fn add_triangle(&mut self) { 
-        self.triangles.push(Triangle::random());
-        self.mutation_appends += 1;
-    }
-
-    fn remove_circle(&mut self) {
-        if self.circles.len() > 1 {
-            self.remove_random_circle();
-            self.mutation_pops += 1;
-        }
-    }
-
-    fn remove_triangle(&mut self) {
-        if self.triangles.len() > 1 {
-            self.remove_random_triangle();
-            self.mutation_pops += 1;
-        }
-    }
-
-    fn mutate_circle(&mut self) {
-        match choose(&mut self.circles) {
-            Some(m) => {
-                m.mutate();
-                self.mutation_changes += 1;
-            },
-            None => {}
-        }
-    }
-
-    fn mutate_triangle(&mut self) {
-        match choose(&mut self.triangles) {
-            Some(m) => {
-                m.mutate();
-                self.mutation_changes += 1;
-            },
-            None => {}
-        }
-    }
-
-    /*
-    fn merge_circles(&mut self) {
-        if self.circles.len() > 2 {
-            let d = self.remove_random();
-            match choose(&mut self.circles) {
-                Some(m) => {
-                    m.merge(d);
-                    self.mutation_merges += 1;
-                },
-                None => panic!()
-            }
-        }
-    }
-    */
 
     fn serialize(&mut self) -> SerializedLisa {
         SerializedLisa {
-            circles: self.circles.clone(),
-            triangles: self.triangles.clone(),
+            shapes: self.shapes.clone(),
             mutations: self.mutations,
             mutation_appends: self.mutation_appends,
             mutation_pops: self.mutation_pops,
@@ -247,8 +156,8 @@ impl Lisa {
 
     fn str(&mut self) -> String {
 		let mut out = String::new();
-		write!(&mut out, "[F:{:.1} ({} circ, {} tri, {} mut: {}+ {}- {}~ )]",
-            self.calculate_fitness(), self.circles.len(), self.triangles.len(), self.mutations,
+		write!(&mut out, "[F:{:.1} ({} shap, {} mut: {}+ {}- {}~ )]",
+            self.calculate_fitness(), self.shapes.len(), self.mutations,
             self.mutation_appends, self.mutation_pops, self.mutation_changes
             ).expect("couldn't append string");
         return out;
@@ -259,14 +168,19 @@ impl Lisa {
 impl Individual for Lisa {
 
     fn mutate(&mut self) {
-        match (rand() * self.ctx.shape_multiplier) as u8 {
-            0...15 => self.add_circle(),
-            15...30 => self.remove_circle(),
-            30...50 => self.mutate_circle(),
-
-            50...60 => self.add_triangle(),
-            60...70 => self.remove_triangle(),
-            70...100 => self.mutate_triangle(),
+        match (rand() * 100.) as u8 {
+            0...30 => {
+                self.shapes.add_random();
+                self.mutation_appends += 1;
+                },
+            30...40 => {
+                self.shapes.remove_shape();
+                self.mutation_pops += 1;
+                },
+            40...100 => {
+                self.shapes.mutate();
+                self.mutation_changes += 1;
+                },
             _ => panic!("Impossible mutation")
         }
         self.mutations += 1;
@@ -277,21 +191,22 @@ impl Individual for Lisa {
         
         if self.ctx.use_weighting {
             let fitness = self.canv.weighted_diff(&self.ctx.image, &self.ctx.weightings, 0.01);
-		    return fitness * (1. + 0.001 * (self.circles.len() as f64));
+		    return fitness * (1. + 0.001 * (self.shapes.len() as f64));
         } else {
             // Pixel difference * 100% + 0.1% per circle
             let fitness = self.canv.diff(&self.ctx.image);
-		    return fitness * (1. + 0.001 * (self.circles.len() as f64));
+		    return fitness * (1. + 0.001 * (self.shapes.len() as f64));
         }
     }
 
     fn reset(&mut self) {
-		self.circles = Vec::new();
+		self.shapes = ShapeList::new();
 		self.canv.wipe();
     }
 
 	fn new_fittest_found(&mut self) {
-		print!("New fittest: {} \n", self.str());
+        let now = chrono::Utc::now();
+		print!("{} New fittest: {} \n", now, self.str());
         let mut svg = File::create("best.svg").unwrap();
         std::io::Write::write_all(&mut svg, self.svg().as_bytes()).expect("couldn't write");
 
@@ -340,14 +255,18 @@ fn main() {
                  .arg(Arg::with_name("exponential-growth")
                     .short("e")
                     .takes_value(true))
+                 .arg(Arg::with_name("weighting")
+                    .short("w"))
                  .get_matches();
 
     let population = value_t!(matches.value_of("population"), usize).unwrap_or(10);
     let growth = value_t!(matches.value_of("exponential-growth"), f64).unwrap_or(1.0);
     let start_with_best = matches.is_present("loadbest"); 
+    let use_weighting = matches.is_present("weighting"); 
     let image = value_t!(matches.value_of("image"), String).unwrap_or(String::from("lisa.jpg"));
 
-    let mut context = Context::new(&image);
+    let mut context = Context::new(&image, use_weighting);
+
     if context.use_weighting {
         context.weight_entropy();
     }
@@ -358,7 +277,7 @@ fn main() {
     if start_with_best {
         my_pop = make_population_from_file(population, ctx, "best.json");
         println!("# - Using previous best: {:.1}, {}",
-                 my_pop[0].calculate_fitness(), my_pop[0].circles.len());
+                 my_pop[0].calculate_fitness(), my_pop[0].shapes.len());
     } else {
 	    my_pop = make_population(population, ctx);
     }
