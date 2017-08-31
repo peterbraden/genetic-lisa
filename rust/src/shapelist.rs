@@ -3,7 +3,7 @@ use std::fmt::Write;
 use canvas::{Canvas};
 use rando::{rand, choose};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct ShapeList {
     shapes: Vec<Shape>
 }
@@ -13,6 +13,11 @@ impl ShapeList {
         ShapeList {
             shapes: Vec::new()
         }
+    }
+
+    pub fn slice(&self, i: usize) -> ShapeList{
+        let n = (&self.shapes.clone()[0..i]).to_vec();
+        return ShapeList { shapes: n }
     }
 
     fn remove_random(&mut self) {
@@ -56,9 +61,20 @@ impl ShapeList {
 	}
 
     pub fn draw_onto(&self, mut canv: &mut Canvas) {
-		canv.wipe();
 		for c in &self.shapes{
             c.draw_onto(&mut canv);
 		}
+    }
+
+    pub fn draw_item_onto(&self, i: usize, mut canv: &mut Canvas) {
+        self.shapes[i].draw_onto(canv);
+    }
+
+    pub fn to_string(&self) -> String {
+		let mut out = String::new();
+		for c in &self.shapes{
+            out.push_str(&c.to_string());
+        }
+        return out;
     }
 }

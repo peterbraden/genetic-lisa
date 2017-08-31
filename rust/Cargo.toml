@@ -15,6 +15,11 @@ clap = "2.19"
 env_logger = "0.3"
 image="*"
 chrono="0.4.0"
+lru-cache="0.1.1"
+
+[profile.release]
+debug = true
+
 
 
 

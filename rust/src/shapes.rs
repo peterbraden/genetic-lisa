@@ -7,10 +7,11 @@ use std::cmp::{min, max};
 pub trait ShapeBehaviour {
     fn mutate(&mut self);
     fn svg(&self, width: usize, height: usize) -> String;
+    fn to_string(&self) -> String;
     fn draw_onto(&self, &mut Canvas);
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub enum Shape {
     Circle(Circle),
     Rect(Rect),
@@ -44,6 +45,14 @@ impl Shape {
         }
     }
 
+    pub fn to_string(&self) -> String{
+        match self {
+            &Shape::Triangle(ref t) => t.to_string(),
+            &Shape::Rect(ref t) => t.to_string(),
+            &Shape::Circle(ref c) => c.to_string()
+        }
+    }
+
     pub fn draw_onto(&self, mut canv: &mut Canvas) {
         match self {
             &Shape::Triangle(ref t) => t.draw_onto(canv),
@@ -53,7 +62,7 @@ impl Shape {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct Rect {
     pub x1: f64,
     pub x2: f64,
@@ -77,6 +86,7 @@ impl Rect {
             }
         }
     }
+
 }
 
 impl ShapeBehaviour for Rect {
@@ -89,6 +99,10 @@ impl ShapeBehaviour for Rect {
             90...100 => self.y2 += rand_adjust(self.y2, 0.5, 0., 1.0),
             _ => panic!()
         }
+    }
+
+    fn to_string(&self) -> String {
+        return format!("<R{:.6},{:.6},{:.6},{:.6},{}>", self.x1, self.y1, self.x2, self.y2, self.color.rgba());
     }
 
     fn svg(&self, width: usize, height: usize) -> String {
@@ -116,7 +130,7 @@ impl ShapeBehaviour for Rect {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct Triangle {
     pub x1: f64,
     pub x2: f64,
@@ -160,6 +174,13 @@ impl ShapeBehaviour for Triangle {
         }
     }
 
+    fn to_string(&self) -> String {
+        return format!("<T{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{}>", self.x1, self.y1,
+                                                        self.x2, self.y2, 
+                                                        self.x3, self.y3, 
+                                                        self.color.rgba());
+    }
+
     fn svg(&self, width: usize, height: usize) -> String {
 		let mut out = String::new();
 		write!(&mut out, "<polygon points='{},{} {},{} {},{}' fill='{}' />",
@@ -199,7 +220,7 @@ impl ShapeBehaviour for Triangle {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct Circle {
 	pub x: f64,
 	pub y: f64,
@@ -254,6 +275,9 @@ impl ShapeBehaviour for Circle {
 			.expect("String concat failed");
 		return out;
 	}
+    fn to_string(&self) -> String {
+        return format!("<C{:.6},{:.6},{:6},{}>", self.x, self.y, self.rad, self.color.rgba());
+    }
 
     fn draw_onto(&self, mut canvas: &mut Canvas) {
         let rad = (self.rad * canvas.width as f64) as i32;

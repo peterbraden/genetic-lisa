@@ -8,7 +8,7 @@ fn color_add(c:u8, c2: u8, opacity: f64) -> u8 {
            (c2 as f64 * opacity)).min(255.).max(0.) as u8;
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct Color {
     pub r: u8,
     pub g: u8,
