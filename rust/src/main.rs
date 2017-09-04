@@ -4,6 +4,10 @@
 // - Compare the gzipped SVG length to the source image length
 // - Divide and conquer by splitting image into small cells.
 
+
+#![cfg_attr(feature="clippy", feature(plugin))]
+#![cfg_attr(feature="clippy", plugin(clippy))]
+
 extern crate darwin_rs;
 extern crate serde;
 extern crate serde_json;

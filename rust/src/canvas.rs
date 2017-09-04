@@ -53,6 +53,7 @@ impl Canvas {
         return (y * self.width as i32 + x) * self.depth as i32;
     }
 
+    #[inline]
     pub fn add_pixel(&mut self, x: i32, y: i32, color: &Color) {
         let i = self.ind_from_pos(x, y) as usize;
         if i + self.depth < self.pixels.len() {

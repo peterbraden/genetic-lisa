@@ -7,13 +7,14 @@ use shapelist::{ShapeList};
 
 #[derive(Debug)]
 pub struct CanvasCache {
-    map: LruCache<String, Canvas>,
+    map: LruCache<ShapeList, Canvas>,
     width: usize,
     height: usize,
     depth: usize,
     hits: usize,
     misses: usize,
-    requests: usize
+    requests: usize,
+    shapes: usize
 }
 
 
@@ -28,7 +29,8 @@ impl CanvasCache {
             depth: depth,
             hits: 0,
             misses: 0,
-            requests: 0
+            requests: 0,
+            shapes: 0
         }
     }   
 
@@ -39,25 +41,23 @@ impl CanvasCache {
     }
 
     
-    fn get_or_insert(mut c: &mut LruCache<String, Canvas>, sl: &ShapeList, width:usize, height:usize, depth:usize) -> Canvas {
-        let k = sl.to_string();
-
-        if !c.contains_key(&k) {
-            c.insert(k.clone(), CanvasCache::fallback_for(
+    fn get_or_insert(mut c: &mut LruCache<ShapeList, Canvas>, sl: &ShapeList, width:usize, height:usize, depth:usize) -> Canvas {
+        if !c.contains_key(&sl) {
+            c.insert(sl.clone(), CanvasCache::fallback_for(
                      &sl,  width, height, depth));
         }
 
-        return c.get_mut(&k).unwrap().clone();
+        return c.get_mut(&sl).unwrap().clone();
     }
 
     pub fn canvas_for(&mut self, sl: &ShapeList) -> Canvas {
         self.requests += 1;
-        if (self.requests) % 100 == 0 {
+        if (self.requests) % 1000 == 0 {
             let now = chrono::Utc::now();
-            print!("{} Cache: hits:{} misses: {} req: {} len: {}\n", 
-                  now, self.hits, self.misses, self.requests, self.map.len());
+            print!("{} Cache: hits:{} misses: {} req: {} shp: {}  len: {}\n", 
+                  now, self.hits, self.misses, self.requests, self.shapes, self.map.len());
         }
-        return self.search_sublist(sl, 0);
+        return self.search_sublist_non_recursive(sl);
     }
 
     /// Insert a shapelist and all subportions of that shapelist
@@ -79,7 +79,7 @@ impl CanvasCache {
     /// This means that mutations to a shapelist are cheaper towards the end
     pub fn search_sublist(&mut self, sl: &ShapeList, i: usize) ->  Canvas {
         let ind = sl.len() - i;
-        let k = sl.slice(ind).to_string();
+        let k = sl.slice(ind);
 
         if ind <= 1 {
             // Matching the first shape, so just return or add to the cache
@@ -98,5 +98,26 @@ impl CanvasCache {
         sl.draw_item_onto(ind - 1, &mut c);
         return c;
         //return self.map.entry(k).or_insert(c).clone(); // CACHE ALL
+    }
+
+    pub fn search_sublist_non_recursive(&mut self, sl: &ShapeList) -> Canvas {
+        for i in 0..sl.len() {
+            match self.map.get_mut(&sl.slice(sl.len() - i)){
+                Some(k) => { 
+                    self.hits += 1;
+                    self.shapes += i;
+                    let mut c = k.clone();
+                    for x in i..sl.len() {
+                        sl.draw_item_onto(x, &mut c);
+                    }
+                    return c;
+                },
+                None => {}
+            }
+        }
+        
+        // None found, 
+        self.misses += 1;
+        return CanvasCache::fallback_for(&sl, self.width, self.height, self.depth);
     }
 }

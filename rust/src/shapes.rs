@@ -3,6 +3,7 @@ use rando::{rand, rand_adjust, randu8};
 use color::Color;
 use std::fmt::Write;
 use std::cmp::{min, max};
+use std::hash::{Hash, Hasher};
 
 pub trait ShapeBehaviour {
     fn mutate(&mut self);
@@ -11,7 +12,7 @@ pub trait ShapeBehaviour {
     fn draw_onto(&self, &mut Canvas);
 }
 
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Hash, Eq, Debug, Clone, Serialize, Deserialize)]
 pub enum Shape {
     Circle(Circle),
     Rect(Rect),
@@ -53,6 +54,7 @@ impl Shape {
         }
     }
 
+    #[inline]
     pub fn draw_onto(&self, mut canv: &mut Canvas) {
         match self {
             &Shape::Triangle(ref t) => t.draw_onto(canv),
@@ -64,20 +66,20 @@ impl Shape {
 
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct Rect {
-    pub x1: f64,
-    pub x2: f64,
-    pub y1: f64,
-    pub y2: f64,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
     pub color: Color
 }
 
 impl Rect {
     pub fn random() -> Rect {
         Rect {
-            x1: rand(),
-            x2: rand(),
-            y1: rand(),
-            y2: rand(),
+            x: rand(),
+            y: rand(),
+            width: rand(),
+            height: rand(),
             color: Color {
                 r: randu8(),
                 g: randu8(),
@@ -93,35 +95,36 @@ impl ShapeBehaviour for Rect {
     fn mutate(&mut self) {
         match (rand() * 100.) as u8 {
             0...60 => self.color = self.color.mutate(),
-            60...70 => self.x1 += rand_adjust(self.x1, 0.5, 0., 1.0),
-            70...80 => self.y1 += rand_adjust(self.y1, 0.5, 0., 1.0),
-            80...90 => self.x2 += rand_adjust(self.x2, 0.5, 0., 1.0),
-            90...100 => self.y2 += rand_adjust(self.y2, 0.5, 0., 1.0),
+            60...70 => self.x += rand_adjust(self.x, 0.5, 0., 1.0),
+            70...80 => self.y += rand_adjust(self.y, 0.5, 0., 1.0),
+            80...90 => self.width += rand_adjust(self.width, 0.5, 0., 1.0),
+            90...100 => self.height += rand_adjust(self.height, 0.5, 0., 1.0),
             _ => panic!()
         }
     }
 
     fn to_string(&self) -> String {
-        return format!("<R{:.6},{:.6},{:.6},{:.6},{}>", self.x1, self.y1, self.x2, self.y2, self.color.rgba());
+        return format!("<R{:.6},{:.6},{:.6},{:.6},{}>", self.x, self.y, self.width, self.height, self.color.rgba());
     }
 
     fn svg(&self, width: usize, height: usize) -> String {
 		let mut out = String::new();
 		write!(&mut out, "<rect x='{}' y='{}' width='{}' height='{}' fill='{}' />",
-                (self.x1 * width as f64) as i32,
-                (self.y1 * height as f64) as i32,
-                ((self.x2 - self.x1) * width as f64) as i32,
-                ((self.y2 - self.y1) * height as f64) as i32,
+                (self.x * width as f32) as i32,
+                (self.y * height as f32) as i32,
+                ((self.width) * width as f32) as i32,
+                ((self.height) * height as f32) as i32,
                 self.color.rgba())
 			.expect("String concat failed");
 		return out;
     }
 
+    #[inline]
     fn draw_onto(&self, canv: &mut Canvas) {
-        let x1 = (self.x1 * canv.width as f64) as i32;
-        let y1 = (self.y1 * canv.height as f64) as i32;
-        let x2 = (self.x2 * canv.width as f64) as i32;
-        let y2 = (self.y2 * canv.height as f64) as i32;
+        let x1 = (self.x * canv.width as f32) as i32;
+        let y1 = (self.y * canv.height as f32) as i32;
+        let x2 = x1 + (self.width * canv.width as f32) as i32;
+        let y2 = y1 + (self.height * canv.height as f32) as i32;
         for x in max(x1, 0) .. min(x2, canv.width as i32) {
             for y in max(y1, 0) .. min(y2, canv.height as i32) {
                 canv.add_pixel(x, y, &self.color)
@@ -130,14 +133,30 @@ impl ShapeBehaviour for Rect {
     }
 }
 
+impl Hash for Rect {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let x = (self.x * 1000.) as i32;
+        let y = (self.y * 1000.) as i32;
+        let width = (self.width * 1000.) as i32;
+        let height = (self.height * 1000.) as i32;
+        x.hash(state);
+        y.hash(state);
+        width.hash(state);
+        height.hash(state);
+        self.color.hash(state);
+    }
+}
+
+impl Eq for Rect {}
+
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct Triangle {
-    pub x1: f64,
-    pub x2: f64,
-    pub x3: f64,
-    pub y1: f64,
-    pub y2: f64,
-    pub y3: f64,
+    pub x1: f32,
+    pub x2: f32,
+    pub x3: f32,
+    pub y1: f32,
+    pub y2: f32,
+    pub y3: f32,
     pub color: Color
 }
 
@@ -184,24 +203,25 @@ impl ShapeBehaviour for Triangle {
     fn svg(&self, width: usize, height: usize) -> String {
 		let mut out = String::new();
 		write!(&mut out, "<polygon points='{},{} {},{} {},{}' fill='{}' />",
-                (self.x1 * width as f64) as i32,
-                (self.y1 * height as f64) as i32,
-                (self.x2 * width as f64) as i32,
-                (self.y2 * height as f64) as i32,
-                (self.x3 * width as f64) as i32,
-                (self.y3 * height as f64) as i32,
+                (self.x1 * width as f32) as i32,
+                (self.y1 * height as f32) as i32,
+                (self.x2 * width as f32) as i32,
+                (self.y2 * height as f32) as i32,
+                (self.x3 * width as f32) as i32,
+                (self.y3 * height as f32) as i32,
                 self.color.rgba())
 			.expect("String concat failed");
 		return out;
     }
 
+    #[inline]
     fn draw_onto(&self, canv: &mut Canvas) {
-        let x1 = (self.x1 * canv.width as f64) as i32;
-        let y1 = (self.y1 * canv.height as f64) as i32;
-        let x2 = (self.x2 * canv.width as f64) as i32;
-        let y2 = (self.y2 * canv.height as f64) as i32;
-        let x3 = (self.x3 * canv.width as f64) as i32;
-        let y3 = (self.y3 * canv.height as f64) as i32;
+        let x1 = (self.x1 * canv.width as f32) as i32;
+        let y1 = (self.y1 * canv.height as f32) as i32;
+        let x2 = (self.x2 * canv.width as f32) as i32;
+        let y2 = (self.y2 * canv.height as f32) as i32;
+        let x3 = (self.x3 * canv.width as f32) as i32;
+        let y3 = (self.y3 * canv.height as f32) as i32;
         let xmin = min(x1, min(x2, x3));
         let xmax = max(x1, max(x2, x3));
         let ymin = min(y1, min(y2, y3));
@@ -220,11 +240,31 @@ impl ShapeBehaviour for Triangle {
     }
 }
 
+impl Hash for Triangle {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let x1 = (self.x1 * 1000.) as i32;
+        let y1 = (self.y1 * 1000.) as i32;
+        let x2 = (self.x2 * 1000.) as i32;
+        let y2 = (self.y2 * 1000.) as i32;
+        let x3 = (self.x3 * 1000.) as i32;
+        let y3 = (self.y3 * 1000.) as i32;
+        x1.hash(state);
+        y1.hash(state);
+        x2.hash(state);
+        y2.hash(state);
+        x3.hash(state);
+        y3.hash(state);
+        self.color.hash(state);
+    }
+}
+
+impl Eq for Triangle {}
+
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct Circle {
-	pub x: f64,
-	pub y: f64,
-	pub rad: f64,
+	pub x: f32,
+	pub y: f32,
+	pub rad: f32,
     pub color: Color
 }
 
@@ -267,9 +307,9 @@ impl ShapeBehaviour for Circle {
 
 	fn svg(&self, width: usize, height: usize) -> String {
 		let mut out = String::new();
-		let cx = (self.x * width as f64) as i32;
-		let cy = (self.y * height as f64) as i32;
-		let rad = (self.rad * width as f64) as i32;
+		let cx = (self.x * width as f32) as i32;
+		let cy = (self.y * height as f32) as i32;
+		let rad = (self.rad * width as f32) as i32;
 		write!(&mut out, "<circle cx='{}' cy='{}' r='{}' fill='{}' />",
                 cx, cy, rad, self.color.rgba())
 			.expect("String concat failed");
@@ -279,10 +319,11 @@ impl ShapeBehaviour for Circle {
         return format!("<C{:.6},{:.6},{:6},{}>", self.x, self.y, self.rad, self.color.rgba());
     }
 
+    #[inline]
     fn draw_onto(&self, mut canvas: &mut Canvas) {
-        let rad = (self.rad * canvas.width as f64) as i32;
-        let cx = (self.x * canvas.width as f64) as i32;
-        let cy = (self.y * canvas.height as f64) as i32;
+        let rad = (self.rad * canvas.width as f32) as i32;
+        let cx = (self.x * canvas.width as f32) as i32;
+        let cy = (self.y * canvas.height as f32) as i32;
 		let radrad = rad * rad;
 
 		for x in -rad .. rad {
@@ -301,6 +342,19 @@ impl ShapeBehaviour for Circle {
     }
 }
 
+impl Hash for Circle{
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let x = (self.x * 1000.) as i32;
+        let y = (self.y * 1000.) as i32;
+        let rad = (self.rad * 1000.) as i32;
+        x.hash(state);
+        y.hash(state);
+        rad.hash(state);
+        self.color.hash(state);
+    }
+}
+
+impl Eq for Circle {}
 
 #[cfg(test)]
 mod tests {

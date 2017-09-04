@@ -2,10 +2,12 @@ use std::fmt::Write;
 use std::fmt;
 use std::ops::{Mul, Add};
 use rando::{rand, rand_adjust, rand_color_adjust};
+use std::hash::{Hash, Hasher};
 
-fn color_add(c:u8, c2: u8, opacity: f64) -> u8 {
-	return (c as f64 * (1. - opacity) +
-           (c2 as f64 * opacity)).min(255.).max(0.) as u8;
+#[inline]
+fn color_add(c:u8, c2: u8, opacity: f32) -> u8 {
+	return (c as f32 * (1. - opacity) +
+           (c2 as f32 * opacity)) as u8;
 }
 
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
@@ -13,7 +15,7 @@ pub struct Color {
     pub r: u8,
     pub g: u8,
     pub b: u8,
-    pub opacity: f64
+    pub opacity: f32
 }
 
 impl Color {
@@ -60,6 +62,7 @@ impl Color {
         }
     }
 
+    #[inline]
     pub fn add_to_vec(&self, vec: &mut Vec<u8>, i: usize){
         vec[i]     = color_add(vec[i],      self.r, self.opacity);
         vec[i + 1] = color_add(vec[i + 1],  self.g, self.opacity);
@@ -92,15 +95,35 @@ impl <'a, 'b> Add<&'b Color> for &'a Color {
     }
 }
 
-impl Mul<f64> for Color {
+impl Mul<f32> for Color {
     type Output = Color;
 
-    fn mul(self, _rhs: f64) -> Color {
+    fn mul(self, _rhs: f32) -> Color {
         Color {
-            r: (self.r as f64 * _rhs) as u8,
-            g: (self.g as f64 * _rhs) as u8,
-            b: (self.b as f64 * _rhs) as u8,
+            r: (self.r as f32 * _rhs) as u8,
+            g: (self.g as f32 * _rhs) as u8,
+            b: (self.b as f32 * _rhs) as u8,
             opacity: self.opacity * _rhs
         }
+    }
+}
+
+impl Hash for Color {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.r.hash(state);
+        self.g.hash(state);
+        self.b.hash(state);
+        ((self.opacity * 1000.) as i32).hash(state);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_color_add() { 
+        let c = color_add(255, 255, 1.);
+        assert_eq!(c, 255);
     }
 }

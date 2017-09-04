@@ -3,7 +3,7 @@ use std::fmt::Write;
 use canvas::{Canvas};
 use rando::{rand, choose};
 
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Hash, Debug, Clone, Serialize, Deserialize)]
 pub struct ShapeList {
     shapes: Vec<Shape>
 }
@@ -21,7 +21,7 @@ impl ShapeList {
     }
 
     fn remove_random(&mut self) {
-        let i = (rand() * self.shapes.len() as f64) as usize;
+        let i = (rand() * self.shapes.len() as f32) as usize;
         self.shapes.remove(i);
     }
 
@@ -36,9 +36,13 @@ impl ShapeList {
     }
 
     pub fn mutate(&mut self) {
-        match choose(&mut self.shapes) {
-            Some(mut m) => { m.mutate(); }
-            None => {}
+        //match choose(&mut self.shapes) {
+        //    Some(mut m) => { m.mutate(); }
+        //    None => {}
+        //}
+        let l = self.shapes.len();
+        if l > 0 {
+            self.shapes[l - 1].mutate();
         }
     }
 
