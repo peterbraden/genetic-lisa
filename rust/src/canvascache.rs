@@ -107,7 +107,7 @@ impl CanvasCache {
                     self.hits += 1;
                     self.shapes += i;
                     let mut c = k.clone();
-                    for x in i..sl.len() {
+                    for x in (sl.len() - i)..sl.len() {
                         sl.draw_item_onto(x, &mut c);
                     }
                     return c;

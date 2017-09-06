@@ -49,6 +49,7 @@ impl Canvas {
 		}
 	}
     
+    #[inline]
     pub fn ind_from_pos(&self, x: i32, y: i32) -> i32 {
         return (y * self.width as i32 + x) * self.depth as i32;
     }
