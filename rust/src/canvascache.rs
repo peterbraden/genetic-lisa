@@ -62,10 +62,11 @@ impl CanvasCache {
 
     /// Insert a shapelist and all subportions of that shapelist
     pub fn insert(&mut self, sl: &ShapeList) {
+        let mut canv = Canvas::new(self.width, self.height, self.depth);
         for i in 0..sl.len() {
-            CanvasCache::get_or_insert(
-                &mut self.map, &sl.slice(sl.len() - i),
-                self.width, self.height, self.depth);
+            let s = sl.slice(i + 1);
+            sl.draw_item_onto(i, &mut canv);
+            self.map.insert(s, canv.clone()); 
         }
     }
 

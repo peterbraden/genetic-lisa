@@ -57,8 +57,21 @@ impl Canvas {
     #[inline]
     pub fn add_pixel(&mut self, x: i32, y: i32, color: &Color) {
         let i = self.ind_from_pos(x, y) as usize;
-        if i + self.depth < self.pixels.len() {
+        //if i + self.depth < self.pixels.len() {
             color.add_to_vec(&mut self.pixels, i);
+        //}
+    }
+
+    #[inline]
+    pub fn line_add(&mut self, x1: i32, x2: i32, y: i32, color: &Color){
+        let wid = self.width as i32;
+        if y < 0 || y >= self.height as i32 {
+            return;
+        }
+        for x in x1 .. x2 + 1 {
+            if x >= 0 && x < wid {
+                self.add_pixel(x, y, color);
+            }
         }
     }
 

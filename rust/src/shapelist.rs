@@ -36,13 +36,16 @@ impl ShapeList {
     }
 
     pub fn mutate(&mut self) {
-        //match choose(&mut self.shapes) {
-        //    Some(mut m) => { m.mutate(); }
-        //    None => {}
-        //}
-        let l = self.shapes.len();
-        if l > 0 {
-            self.shapes[l - 1].mutate();
+        if rand() > 0.9 { // Bias end mutations as they're cheaper
+            match choose(&mut self.shapes) {
+                Some(mut m) => { m.mutate(); }
+                None => {}
+            }
+        } else {
+            let l = self.shapes.len();
+            if l > 0 {
+                self.shapes[l - 1].mutate();
+            }
         }
     }
 

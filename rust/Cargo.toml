@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Peter Braden <peterbraden@peterbraden.co.uk>"]
 
 [dependencies]
-darwin-rs = "0.4"
+darwin-rs = {path = "./darwin-rs"}
 rand = "*"
 "jpeg-decoder" = "*"
 lazy_static = "0.2.8"

@@ -125,8 +125,12 @@ impl ShapeBehaviour for Rect {
         let y1 = (self.y * canv.height as f32) as i32;
         let x2 = x1 + (self.width * canv.width as f32) as i32;
         let y2 = y1 + (self.height * canv.height as f32) as i32;
-        for x in max(x1, 0) .. min(x2, canv.width as i32) {
-            for y in max(y1, 0) .. min(y2, canv.height as i32) {
+        let xmin = max(x1, 0);
+        let xmax = min(x2, canv.width as i32);
+        let ymin = max(y1, 0);
+        let ymax = min(y2, canv.height as i32);
+        for x in  xmin .. xmax {
+            for y in ymin .. ymax {
                 canv.add_pixel(x, y, &self.color)
             }
         }
@@ -223,12 +227,12 @@ impl ShapeBehaviour for Triangle {
         let x3 = (self.x3 * canv.width as f32) as i32;
         let y3 = (self.y3 * canv.height as f32) as i32;
         let xmin = min(x1, min(x2, x3));
-        let xmax = max(x1, max(x2, x3));
+        let xmax = min(max(x1, max(x2, x3)), canv.width as i32);
         let ymin = min(y1, min(y2, y3));
-        let ymax = max(y1, max(y2, y3));
+        let ymax = min(max(y1, max(y2, y3)), canv.height as i32);
         
-        for x in xmin..min(xmax, canv.width as i32) {
-            for y in ymin..min(ymax, canv.height as i32) {
+        for x in xmin .. xmax  {
+            for y in ymin .. ymax {
                 let asx = x - x1;
                 let asy = y - y1;
                 let sab = (x2 - x1) * asy - (y2 - y1) * asx > 0;
@@ -291,6 +295,28 @@ impl Circle {
         self.rad = (self.rad + d.rad) / 2.;
     }
     */
+
+    #[inline]
+    pub fn draw_onto_slow(&self, mut canvas: &mut Canvas) {
+        let rad = (self.rad * canvas.width as f32) as i32;
+        let cx = (self.x * canvas.width as f32) as i32;
+        let cy = (self.y * canvas.height as f32) as i32;
+		let radrad = rad * rad;
+
+		for x in -rad .. rad {
+			for y in -rad .. rad {
+                if x*x + y*y < radrad {
+                    let px = cx + x;
+                    let py = cy + y;
+                    if px >= 0 && px < canvas.width as i32 &&
+                       py >= 0 && py < canvas.height as i32 {
+                        canvas.add_pixel(px, py, &self.color);
+                    }
+                }
+
+			}
+		}
+    }
 }
 
 impl ShapeBehaviour for Circle {
@@ -321,25 +347,37 @@ impl ShapeBehaviour for Circle {
 
     #[inline]
     fn draw_onto(&self, mut canvas: &mut Canvas) {
+        // Bresenheim
         let rad = (self.rad * canvas.width as f32) as i32;
-        let cx = (self.x * canvas.width as f32) as i32;
-        let cy = (self.y * canvas.height as f32) as i32;
-		let radrad = rad * rad;
+        let mut x = rad - 1;
+        let mut y = 0;
+		let cx = (self.x * canvas.width as f32) as i32;
+		let cy = (self.y * canvas.height as f32) as i32;
+        let mut dx = 1;
+        let mut dy = 1;
+        let mut err = dx - (rad << 1);
 
-		for x in -rad .. rad {
-			for y in -rad .. rad {
-                if x*x + y*y <= radrad {
-                    let px = cx + x;
-                    let py = cy + y;
-                    if px >= 0 && px < canvas.width as i32 &&
-                       py >= 0 && py < canvas.height as i32 {
-                        canvas.add_pixel(px, py, &self.color);
-                    }
-                }
+        while x >= y {
+            canvas.line_add(cx - x, cx + x, cy + y, &self.color);
+            canvas.line_add(cx - x, cx + x, cy - y, &self.color);
+            canvas.line_add(cx - y, cx + y, cy + x, &self.color);
+            canvas.line_add(cx - y, cx + y, cy - x, &self.color);
 
-			}
-		}
+            if err <= 0 {
+                y += 1;
+                err += dy;
+                dy += 2;
+            }
+
+            if err > 0 {
+                x -= 1;
+                dx += 2;
+                err += (-rad << 1) + dx;
+            }
+        }
+
     }
+
 }
 
 impl Hash for Circle{
@@ -362,7 +400,23 @@ mod tests {
     
     #[test]
     fn draw_shapes(){
-        let mut c = Canvas::new(10, 10, 3);
-        Circle::random().draw_onto(&mut c);
+        let mut c = Canvas::new(200, 200, 3);
+        let mut c2 = Canvas::new(200, 200, 3);
+        let s = Circle {
+			x: 0.5,
+			y: 0.5,
+			rad: 0.5,
+            color: Color {
+                r: 100,
+                g: 200,
+                b: 250,
+                opacity: 1.
+            }
+		};//Circle::random();
+        s.draw_onto(&mut c);
+        s.draw_onto_slow(&mut c2);
+        //c.save("test.png");
+        //c2.save("test2.png");
+        //assert_eq!(c.pixels, c2.pixels);
     }
 }
