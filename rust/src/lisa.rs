@@ -136,10 +136,10 @@ impl Individual for Lisa {
 		let canv = cache.canvas_for(&self.shapes);
         
         if ctx.use_weighting {
+            // Pixel difference * 100% + 0.1% per circle
             let fitness = canv.weighted_diff(&ctx.image, &ctx.weightings, 0.01);
 		    return fitness * (1. + 0.001 * (self.shapes.len() as f64));
         } else {
-            // Pixel difference * 100% + 0.1% per circle
             let fitness = canv.diff(&ctx.image);
 		    return fitness * (1. + 0.001 * (self.shapes.len() as f64));
         }

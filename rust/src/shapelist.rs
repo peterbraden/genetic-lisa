@@ -5,7 +5,7 @@ use rando::{rand, choose};
 
 #[derive(PartialEq, Eq, Hash, Debug, Clone, Serialize, Deserialize)]
 pub struct ShapeList {
-    shapes: Vec<Shape>
+    pub shapes: Vec<Shape>
 }
 
 impl ShapeList {
@@ -16,7 +16,7 @@ impl ShapeList {
     }
 
     pub fn slice(&self, i: usize) -> ShapeList{
-        let n = (&self.shapes.clone()[0..i]).to_vec();
+        let n = (&self.shapes[0..i]).to_vec();
         return ShapeList { shapes: n }
     }
 
