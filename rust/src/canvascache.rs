@@ -1,16 +1,17 @@
 extern crate chrono;
 extern crate lru_cache;
+extern crate fnv;
 
 use canvas::{Canvas};
 use self::lru_cache::LruCache;
 use shapelist::{ShapeList};
-use shapes::{Shape};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use shapes::Shape;
+use std::hash::{BuildHasherDefault};
+use self::fnv::FnvHasher;
 
 #[derive(Debug)]
 pub struct CanvasCache {
-    map: LruCache<u64, Canvas>,
+    map: LruCache<Vec<Shape>, Canvas, BuildHasherDefault<FnvHasher>>,
     width: usize,
     height: usize,
     depth: usize,
@@ -20,17 +21,19 @@ pub struct CanvasCache {
     shapes: usize
 }
 
-fn calculate_hash(t: &[Shape]) -> u64 {
-    let mut s = DefaultHasher::new();
-    t.hash(&mut s);
-    return s.finish();
+fn fallback_for(sl: &ShapeList, width:usize, height:usize, depth:usize) -> Canvas {
+    let mut canv = Canvas::new(width, height, depth);
+    sl.draw_onto(&mut canv);
+    return canv;
 }
 
 impl CanvasCache {
 
     pub fn new(width: usize, height: usize, depth: usize) -> CanvasCache {
         CanvasCache {
-            map: LruCache::new(1000),
+            map: LruCache::with_hasher(
+                     1000, 
+                     BuildHasherDefault::<FnvHasher>::default()),
             width: width,
             height: height,
             depth: depth,
@@ -40,12 +43,6 @@ impl CanvasCache {
             shapes: 0
         }
     }   
-
-    fn fallback_for(sl: &ShapeList, width:usize, height:usize, depth:usize) -> Canvas {
-        let mut canv = Canvas::new(width, height, depth);
-        sl.draw_onto(&mut canv);
-        return canv;
-    }
 
     pub fn canvas_for(&mut self, sl: &ShapeList) -> Canvas {
         self.requests += 1;
@@ -63,7 +60,7 @@ impl CanvasCache {
         for i in 0..sl.len() {
             let s = sl.slice(i + 1);
             sl.draw_item_onto(i, &mut canv);
-            self.map.insert(calculate_hash(&s.shapes), canv.clone()); 
+            self.map.insert(s.shapes.clone(), canv.clone()); 
         }
     }
 
@@ -77,8 +74,8 @@ impl CanvasCache {
     /// This means that mutations to a shapelist are cheaper towards the end
     pub fn search_sublist(&mut self, sl: &ShapeList) -> Canvas {
         for i in 0..sl.len() {
-            let h = calculate_hash(&sl.shapes[0..i]);
-            match self.map.get_mut(&h){
+            let k = &sl.slice(sl.len() - i).shapes;
+            match self.map.get_mut(k){
                 Some(k) => { 
                     self.hits += 1;
                     self.shapes += i;
@@ -94,6 +91,6 @@ impl CanvasCache {
         
         // None found, 
         self.misses += 1;
-        return CanvasCache::fallback_for(&sl, self.width, self.height, self.depth);
+        return fallback_for(&sl, self.width, self.height, self.depth);
     }
 }
