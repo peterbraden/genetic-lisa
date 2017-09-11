@@ -1,5 +1,7 @@
 # The Evolution of a Smile
 
+![Fitness 59M, circles only](./images/59m-circles.svg)
+
 Various implementations of an evolutionary algorithm that aims to
 reproduce the Mona Lisa with randomly mutated overlapping translucent shapes.
 
