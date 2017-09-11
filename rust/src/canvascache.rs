@@ -1,13 +1,17 @@
 extern crate chrono;
 extern crate lru_cache;
+extern crate fnv;
 
 use canvas::{Canvas};
 use self::lru_cache::LruCache;
 use shapelist::{ShapeList};
+use shapes::Shape;
+use std::hash::{BuildHasherDefault};
+use self::fnv::FnvHasher;
 
 #[derive(Debug)]
 pub struct CanvasCache {
-    map: LruCache<ShapeList, Canvas>,
+    map: LruCache<Vec<Shape>, Canvas, BuildHasherDefault<FnvHasher>>,
     width: usize,
     height: usize,
     depth: usize,
@@ -17,13 +21,19 @@ pub struct CanvasCache {
     shapes: usize
 }
 
-
+fn fallback_for(sl: &ShapeList, width:usize, height:usize, depth:usize) -> Canvas {
+    let mut canv = Canvas::new(width, height, depth);
+    sl.draw_onto(&mut canv);
+    return canv;
+}
 
 impl CanvasCache {
 
     pub fn new(width: usize, height: usize, depth: usize) -> CanvasCache {
         CanvasCache {
-            map: LruCache::new(1000),
+            map: LruCache::with_hasher(
+                     1000, 
+                     BuildHasherDefault::<FnvHasher>::default()),
             width: width,
             height: height,
             depth: depth,
@@ -34,22 +44,6 @@ impl CanvasCache {
         }
     }   
 
-    fn fallback_for(sl: &ShapeList, width:usize, height:usize, depth:usize) -> Canvas {
-        let mut canv = Canvas::new(width, height, depth);
-        sl.draw_onto(&mut canv);
-        return canv;
-    }
-
-    
-    fn get_or_insert(mut c: &mut LruCache<ShapeList, Canvas>, sl: &ShapeList, width:usize, height:usize, depth:usize) -> Canvas {
-        if !c.contains_key(&sl) {
-            c.insert(sl.clone(), CanvasCache::fallback_for(
-                     &sl,  width, height, depth));
-        }
-
-        return c.get_mut(&sl).unwrap().clone();
-    }
-
     pub fn canvas_for(&mut self, sl: &ShapeList) -> Canvas {
         self.requests += 1;
         if (self.requests) % 1000 == 0 {
@@ -57,7 +51,7 @@ impl CanvasCache {
             print!("{} Cache: hits:{} misses: {} req: {} shp: {}  len: {}\n", 
                   now, self.hits, self.misses, self.requests, self.shapes, self.map.len());
         }
-        return self.search_sublist_non_recursive(sl);
+        return self.search_sublist(sl);
     }
 
     /// Insert a shapelist and all subportions of that shapelist
@@ -66,7 +60,7 @@ impl CanvasCache {
         for i in 0..sl.len() {
             let s = sl.slice(i + 1);
             sl.draw_item_onto(i, &mut canv);
-            self.map.insert(s, canv.clone()); 
+            self.map.insert(s.shapes.clone(), canv.clone()); 
         }
     }
 
@@ -78,32 +72,10 @@ impl CanvasCache {
     /// from there.
     ///
     /// This means that mutations to a shapelist are cheaper towards the end
-    pub fn search_sublist(&mut self, sl: &ShapeList, i: usize) ->  Canvas {
-        let ind = sl.len() - i;
-        let k = sl.slice(ind);
-
-        if ind <= 1 {
-            // Matching the first shape, so just return or add to the cache
-            self.misses += 1;
-            return CanvasCache::get_or_insert(
-                &mut self.map, &sl.slice(ind), self.width, self.height, self.depth).clone()
-        }
-
-        if self.map.contains_key(&k) {
-            self.hits += 1;
-            return self.map.get_mut(&k).unwrap().clone();
-        }
-
-        // Get the canvas of the sublist before and add this shape
-        let mut c = self.search_sublist(sl, i + 1); 
-        sl.draw_item_onto(ind - 1, &mut c);
-        return c;
-        //return self.map.entry(k).or_insert(c).clone(); // CACHE ALL
-    }
-
-    pub fn search_sublist_non_recursive(&mut self, sl: &ShapeList) -> Canvas {
+    pub fn search_sublist(&mut self, sl: &ShapeList) -> Canvas {
         for i in 0..sl.len() {
-            match self.map.get_mut(&sl.slice(sl.len() - i)){
+            let k = &sl.slice(sl.len() - i).shapes;
+            match self.map.get_mut(k){
                 Some(k) => { 
                     self.hits += 1;
                     self.shapes += i;
@@ -119,6 +91,6 @@ impl CanvasCache {
         
         // None found, 
         self.misses += 1;
-        return CanvasCache::fallback_for(&sl, self.width, self.height, self.depth);
+        return fallback_for(&sl, self.width, self.height, self.depth);
     }
 }

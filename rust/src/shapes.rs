@@ -22,9 +22,9 @@ pub enum Shape {
 impl Shape {
     pub fn random() -> Shape {
         match (rand() * 10.) as u8 {
-            0...4 => { return Shape::Circle(Circle::random()) },
-            4...7 => { return Shape::Triangle(Triangle::random()) },
-            7...10 => { return Shape::Rect(Rect::random()) },
+            //0...4 => { return Shape::Circle(Circle::random()) },
+            0...10 => { return Shape::Triangle(Triangle::random()) },
+            //7...10 => { return Shape::Rect(Rect::random()) },
             _ => panic!("Unknown shape")
         }
     
@@ -119,7 +119,7 @@ impl ShapeBehaviour for Rect {
 		return out;
     }
 
-    #[inline]
+    #[inline(never)]
     fn draw_onto(&self, canv: &mut Canvas) {
         let x1 = (self.x * canv.width as f32) as i32;
         let y1 = (self.y * canv.height as f32) as i32;
@@ -218,7 +218,7 @@ impl ShapeBehaviour for Triangle {
 		return out;
     }
 
-    #[inline]
+    #[inline(never)]
     fn draw_onto(&self, canv: &mut Canvas) {
         let x1 = (self.x1 * canv.width as f32) as i32;
         let y1 = (self.y1 * canv.height as f32) as i32;
@@ -296,7 +296,7 @@ impl Circle {
     }
     */
 
-    #[inline]
+    #[inline(never)]
     pub fn draw_onto_slow(&self, mut canvas: &mut Canvas) {
         let rad = (self.rad * canvas.width as f32) as i32;
         let cx = (self.x * canvas.width as f32) as i32;
@@ -345,7 +345,7 @@ impl ShapeBehaviour for Circle {
         return format!("<C{:.6},{:.6},{:6},{}>", self.x, self.y, self.rad, self.color.rgba());
     }
 
-    #[inline]
+    #[inline(never)]
     fn draw_onto(&self, mut canvas: &mut Canvas) {
         // Bresenheim
         let rad = (self.rad * canvas.width as f32) as i32;

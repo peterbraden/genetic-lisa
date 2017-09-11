@@ -100,8 +100,9 @@ impl Lisa {
 
     fn str(&mut self) -> String {
 		let mut out = String::new();
-		write!(&mut out, "[F:{:.1} ({} shap, {} mut: {}+ {}- {}~ )]",
-            self.calculate_fitness(), self.shapes.len(), self.mutations,
+        let fit = self.calculate_fitness();
+		write!(&mut out, "[F:{:.0}m - {:.1} ({} shap, {} mut: {}+ {}- {}~ )]",
+            fit / 1000_000., fit, self.shapes.len(), self.mutations,
             self.mutation_appends, self.mutation_pops, self.mutation_changes
             ).expect("couldn't append string");
         return out;
@@ -113,15 +114,15 @@ impl Individual for Lisa {
 
     fn mutate(&mut self) {
         match (rand() * 100.) as u8 {
-            0...30 => {
+            0...5 => {
                 self.shapes.add_random();
                 self.mutation_appends += 1;
                 },
-            30...40 => {
+            5...10 => {
                 self.shapes.remove_shape();
                 self.mutation_pops += 1;
                 },
-            40...100 => {
+            10...100 => {
                 self.shapes.mutate();
                 self.mutation_changes += 1;
                 },
@@ -136,10 +137,10 @@ impl Individual for Lisa {
 		let canv = cache.canvas_for(&self.shapes);
         
         if ctx.use_weighting {
+            // Pixel difference * 100% + 0.1% per circle
             let fitness = canv.weighted_diff(&ctx.image, &ctx.weightings, 0.01);
 		    return fitness * (1. + 0.001 * (self.shapes.len() as f64));
         } else {
-            // Pixel difference * 100% + 0.1% per circle
             let fitness = canv.diff(&ctx.image);
 		    return fitness * (1. + 0.001 * (self.shapes.len() as f64));
         }
