@@ -1,0 +1,3 @@
+[submodule "rust/darwin-rs"]
+	path = rust/darwin-rs
+	url = git@github.com:willi-kappler/darwin-rs.git
