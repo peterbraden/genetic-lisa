@@ -1,5 +1,5 @@
 use canvas::{Canvas};
-use rando::{rand, rand_adjust, randu8};
+use rando::{rand, rand_adjust, randu8f};
 use color::Color;
 use std::fmt::Write;
 use std::cmp::{min, max};
@@ -55,7 +55,7 @@ impl Shape {
     }
 
     #[inline]
-    pub fn draw_onto(&self, mut canv: &mut Canvas) {
+    pub fn draw_onto(&self, canv: &mut Canvas) {
         match self {
             &Shape::Triangle(ref t) => t.draw_onto(canv),
             &Shape::Rect(ref t) => t.draw_onto(canv),
@@ -81,9 +81,9 @@ impl Rect {
             width: rand(),
             height: rand(),
             color: Color {
-                r: randu8(),
-                g: randu8(),
-                b: randu8(),
+                r: randu8f(),
+                g: randu8f(),
+                b: randu8f(),
                 opacity: rand()
             }
         }
@@ -174,9 +174,9 @@ impl Triangle {
             y2: rand(),
             y3: rand(),
             color: Color {
-                r: randu8(),
-                g: randu8(),
-                b: randu8(),
+                r: randu8f(),
+                g: randu8f(),
+                b: randu8f(),
                 opacity: rand()
             }
         }
@@ -279,9 +279,9 @@ impl Circle {
 			y: rand(),
 			rad: rand(),
             color: Color {
-                r: randu8(),
-                g: randu8(),
-                b: randu8(),
+                r: randu8f(),
+                g: randu8f(),
+                b: randu8f(),
                 opacity: rand()
             }
 		}
@@ -297,7 +297,7 @@ impl Circle {
     */
 
     #[inline(never)]
-    pub fn draw_onto_slow(&self, mut canvas: &mut Canvas) {
+    pub fn draw_onto_slow(&self, canvas: &mut Canvas) {
         let rad = (self.rad * canvas.width as f32) as i32;
         let cx = (self.x * canvas.width as f32) as i32;
         let cy = (self.y * canvas.height as f32) as i32;
@@ -346,7 +346,7 @@ impl ShapeBehaviour for Circle {
     }
 
     #[inline(never)]
-    fn draw_onto(&self, mut canvas: &mut Canvas) {
+    fn draw_onto(&self, canvas: &mut Canvas) {
         // Bresenheim
         let rad = (self.rad * canvas.width as f32) as i32;
         let mut x = rad - 1;

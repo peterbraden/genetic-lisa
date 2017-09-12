@@ -3,7 +3,6 @@ extern crate jpeg_decoder;
 use color::Color;
 use jpeg_decoder::Decoder;
 use std::fs::File;
-use std::cmp::{min};
 use canvas::{Canvas};
 use std::io::BufReader;
 use canvascache::CanvasCache;
@@ -47,7 +46,7 @@ impl Context {
         // Copy image
         for x in 0..self.width {
             for y in 0..self.height {
-                let diff = min(((self.image.neighbors_diffsq(x, y, 1) / 10) as f64).sqrt() as i32, 255) as u8;
+                let diff = ((self.image.neighbors_diffsq(x, y, 1) / 10) as f32).sqrt().min(255.);
                 self.weightings.add_pixel(x, y, &Color {
                                                     r: diff,
                                                     g: diff,

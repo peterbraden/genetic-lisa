@@ -38,7 +38,7 @@ impl ShapeList {
     pub fn mutate(&mut self) {
         if rand() > 0.9 { // Bias end mutations as they're cheaper
             match choose(&mut self.shapes) {
-                Some(mut m) => { m.mutate(); }
+                Some(m) => { m.mutate(); }
                 None => {}
             }
         } else {
@@ -73,7 +73,7 @@ impl ShapeList {
 		}
     }
 
-    pub fn draw_item_onto(&self, i: usize, mut canv: &mut Canvas) {
+    pub fn draw_item_onto(&self, i: usize, canv: &mut Canvas) {
         self.shapes[i].draw_onto(canv);
     }
 

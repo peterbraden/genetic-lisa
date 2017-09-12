@@ -12,7 +12,7 @@ pub struct Canvas {
     pub width: usize,
     pub height: usize,
     pub depth: usize,
-	pub pixels: Vec<u8>
+	pixels: Vec<f32> // Cast to u8 on all accessors
 }
 
 impl Canvas {
@@ -20,7 +20,7 @@ impl Canvas {
         let len = width * height * depth;
 		let mut vec = Vec::with_capacity(len);
 		for _ in 0..len {
-			vec.push(0)
+			vec.push(0.)
 		}
 		Canvas {
             width: width,
@@ -31,11 +31,16 @@ impl Canvas {
 	}
 
     pub fn from(width: usize, height:usize, depth:usize, data: Vec<u8>) -> Canvas {
+		let mut vec = Vec::with_capacity(data.len());
+		for i in 0..data.len() {
+			vec.push(data[i] as f32);
+		}
+
 		Canvas {
             width: width,
             height: height,
             depth: depth,
-			pixels: data
+			pixels: vec
 		}
     }
 
@@ -45,7 +50,7 @@ impl Canvas {
 
 	pub fn wipe(&mut self) {
 		for x in 0..self.pixels.len() {
-			self.pixels[x] = 0;
+			self.pixels[x] = 0.;
 		}
 	}
     
@@ -79,7 +84,7 @@ impl Canvas {
 	pub fn diff(&self, canv: &Canvas) -> f64 {
 		let mut total = 0.;
 		for x in 0..canv.pixels.len() {
-			let pixdiff = canv.pixels[x] as i32 - self.pixels[x] as i32;
+			let pixdiff = canv.pixels[x] - self.pixels[x];
 			total += (pixdiff * pixdiff) as f64;
 		}
 		return total;
@@ -88,7 +93,7 @@ impl Canvas {
     pub fn weighted_diff(&self, canv: &Canvas, weights: &Canvas, scale: f64) -> f64 {
 		let mut total = 0.;
 		for x in 0..canv.pixels.len() {
-			let pixdiff = canv.pixels[x] as i32 - self.pixels[x] as i32;
+			let pixdiff = canv.pixels[x] - self.pixels[x];
             let pixdiffsq = (pixdiff * pixdiff) as f64;
             let weighted = pixdiffsq * (1. + weights.pixels[x] as f64 * scale);
 			total += weighted;
@@ -96,10 +101,17 @@ impl Canvas {
 		return total;
     }
 
+    pub fn get_pixels(&self) -> Vec<u8>{
+		let mut vec = Vec::with_capacity(self.len());
+		for i in 0..self.len() {
+			vec.push(self.pixels[i] as u8);
+		}
+        return vec
+    }
 
     pub fn save(&self, filename: &str) {
         image::save_buffer(&Path::new(filename), 
-            &self.pixels.as_slice(), 
+            &self.get_pixels().as_slice(), 
             self.width as u32, 
             self.height as u32, image::RGB(8)).unwrap()
     }
