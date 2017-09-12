@@ -73,10 +73,10 @@ impl Canvas {
         if y < 0 || y >= self.height as i32 {
             return;
         }
-        for x in x1 .. x2 + 1 {
-            if x >= 0 && x < wid {
-                self.add_pixel(x, y, color);
-            }
+        let xmin = max(0, x1);
+        let xmax = min(wid - 1, x2); 
+        for x in xmin .. xmax + 1 {
+            self.add_pixel(x, y, color);
         }
     }
 

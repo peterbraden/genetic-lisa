@@ -22,7 +22,7 @@ impl Color {
 		let mut rgb = String::new();
         write!(&mut rgb,
                "rgba({},{},{},{:.4})",
-                self.r, self.g, self.b, self.opacity)
+                self.r as u8, self.g as u8, self.b as u8, self.opacity)
             .expect("String concat failed");
         return rgb;
     }
