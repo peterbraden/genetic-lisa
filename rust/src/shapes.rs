@@ -20,11 +20,13 @@ pub enum Shape {
 }
 
 impl Shape {
-    pub fn random() -> Shape {
+    pub fn random(triangles: bool, circles: bool, rects: bool) -> Shape {
         match (rand() * 10.) as u8 {
-            0...4 => { return Shape::Circle(Circle::random()) },
-            4...7 => { return Shape::Triangle(Triangle::random()) },
-            7...10 => { return Shape::Rect(Rect::random()) },
+            0...4 if circles => { return Shape::Circle(Circle::random()) },
+            0...7 if triangles => { return Shape::Triangle(Triangle::random()) },
+            0...10 if rects => { return Shape::Rect(Rect::random()) },
+            0...10 if triangles => { return Shape::Triangle(Triangle::random()) },
+            0...10 if circles => { return Shape::Circle(Circle::random()) },
             _ => panic!("Unknown shape")
         }
     

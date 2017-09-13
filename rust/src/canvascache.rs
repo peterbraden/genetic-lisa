@@ -32,7 +32,7 @@ impl CanvasCache {
     pub fn new(width: usize, height: usize, depth: usize) -> CanvasCache {
         CanvasCache {
             map: LruCache::with_hasher(
-                     1000, 
+                     5000, 
                      BuildHasherDefault::<FnvHasher>::default()),
             width: width,
             height: height,

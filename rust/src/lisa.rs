@@ -12,15 +12,25 @@ use std::fmt::Write;
 use context::Context;
 use std;
 
+fn zero() -> u64 {
+    return 0;
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializedLisa {
 	shapes: ShapeList,
+    #[serde(default = "zero")]
     mutations: u64,
+    #[serde(default = "zero")]
     mutation_appends: u64,
+    #[serde(default = "zero")]
     mutation_pops: u64,
+    #[serde(default = "zero")]
     mutation_merges: u64,
+    #[serde(default = "zero")]
     mutation_changes: u64,
+    #[serde(default = "zero")]
+    mutation_swaps: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -31,6 +41,7 @@ pub struct Lisa {
     mutation_pops: u64,
     mutation_merges: u64,
     mutation_changes: u64,
+    mutation_swaps: u64,
     ctx: Arc<Context>
 }
 
@@ -43,6 +54,7 @@ impl Lisa {
             mutation_pops: 0,
             mutation_merges: 0,
             mutation_changes: 0,
+            mutation_swaps: 0,
             ctx: ctx
 		}
 	}
@@ -77,6 +89,7 @@ impl Lisa {
             mutation_pops: data.mutation_pops,
             mutation_merges: data.mutation_merges,
             mutation_changes: data.mutation_changes,
+            mutation_swaps: data.mutation_swaps,
             ctx: ctx
         };
         return res;
@@ -95,15 +108,16 @@ impl Lisa {
             mutation_pops: self.mutation_pops,
             mutation_merges: self.mutation_merges,
             mutation_changes: self.mutation_changes,
+            mutation_swaps: self.mutation_swaps,
         }
     }
 
     fn str(&mut self) -> String {
 		let mut out = String::new();
         let fit = self.calculate_fitness();
-		write!(&mut out, "[F:{:.0}m - {:.1} ({} shap, {} mut: {}+ {}- {}~ )]",
+		write!(&mut out, "[F:{:.0}m - {:.1} ({} shap, {} mut: {}+ {}- {}~ {}^)]",
             fit / 1000_000., fit, self.shapes.len(), self.mutations,
-            self.mutation_appends, self.mutation_pops, self.mutation_changes
+            self.mutation_appends, self.mutation_pops, self.mutation_changes, self.mutation_swaps
             ).expect("couldn't append string");
         return out;
     }
@@ -115,13 +129,17 @@ impl Individual for Lisa {
     fn mutate(&mut self) {
         match (rand() * 100.) as u8 {
             0...5 => {
-                self.shapes.add_random();
+                self.shapes.add_random(&self.ctx);
                 self.mutation_appends += 1;
                 },
             5...10 => {
                 self.shapes.remove_shape();
                 self.mutation_pops += 1;
                 },
+            10...15 => {
+                self.shapes.swap();
+                self.mutation_swaps +=1;
+                }
             10...100 => {
                 self.shapes.mutate();
                 self.mutation_changes += 1;

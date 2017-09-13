@@ -50,6 +50,12 @@ fn main() {
                     .takes_value(true))
                  .arg(Arg::with_name("weighting")
                     .short("w"))
+                 .arg(Arg::with_name("no-triangles")
+                      .long("xt"))
+                 .arg(Arg::with_name("no-circles")
+                      .long("xc"))
+                 .arg(Arg::with_name("no-rects")
+                      .long("xr"))
                  .get_matches();
 
     let population = value_t!(matches.value_of("population"), usize).unwrap_or(3);
@@ -58,7 +64,11 @@ fn main() {
     let use_weighting = matches.is_present("weighting"); 
     let image = value_t!(matches.value_of("image"), String).unwrap_or(String::from("lisa.jpg"));
 
-    let mut context = Context::new(&image, use_weighting);
+    let use_triangles = !matches.is_present("no-triangles");
+    let use_circles = !matches.is_present("no-circles");
+    let use_rectangles = !matches.is_present("no-rects");
+
+    let mut context = Context::new(&image, use_weighting, use_triangles, use_circles, use_rectangles);
 
     if context.use_weighting {
         context.weight_entropy();
@@ -67,6 +77,7 @@ fn main() {
     let mut my_pop;
 
 	println!("# Loaded source image {}x{} {:?}", ctx.width, ctx.height, ctx.format);
+    println!("# Using T:{} C:{} R:{}", ctx.use_triangles, ctx.use_circles, ctx.use_rectangles);
     if start_with_best {
         my_pop = Lisa::make_population_from_file(population, ctx.clone(), "best.json");
         println!("# - Using previous best: {:.1}, {}",
