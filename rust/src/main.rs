@@ -52,7 +52,7 @@ fn main() {
                     .short("w"))
                  .get_matches();
 
-    let population = value_t!(matches.value_of("population"), usize).unwrap_or(10);
+    let population = value_t!(matches.value_of("population"), usize).unwrap_or(3);
     let growth = value_t!(matches.value_of("exponential-growth"), f64).unwrap_or(1.0);
     let start_with_best = matches.is_present("loadbest"); 
     let use_weighting = matches.is_present("weighting"); 

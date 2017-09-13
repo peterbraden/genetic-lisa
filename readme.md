@@ -1,6 +1,6 @@
 # The Evolution of a Smile
 
-![Fitness 59M, circles only](./images/59m-circles.svg)
+![Fitness 36M](./images/36m.svg)
 ![Fitness 11M, triangles only, face](./images/11m-triangles-small.svg)
 
 Various implementations of an evolutionary algorithm that aims to
