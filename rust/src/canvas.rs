@@ -166,8 +166,8 @@ mod tests {
     fn diff() {
         let mut c = Canvas::new(10, 10, 3);
         let c2 = Canvas::new(10, 10, 3);
-        c.add_pixel(0,0, &Color {r:255,g:0,b:0,opacity:1.});
-        assert_eq!(c2.diff(&c), 255. * 255.);
-        assert_eq!(c.diff(&c2), 255. * 255.);
+        c.add_pixel(0,0, &Color {r:1.,g:1.,b:0.,opacity:1.});
+        assert_eq!(c2.diff(&c), 2.);
+        assert_eq!(c.diff(&c2), 2.);
     }
 }

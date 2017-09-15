@@ -160,7 +160,7 @@ impl Individual for Lisa {
 		    return fitness * (1. + 0.001 * (self.shapes.len() as f64));
         } else {
             let fitness = canv.diff(&ctx.image);
-		    return fitness * (1. + 0.001 * (self.shapes.len() as f64));
+		    return fitness; // * (1. + 0.001 * (self.shapes.len() as f64));
         }
     }
 

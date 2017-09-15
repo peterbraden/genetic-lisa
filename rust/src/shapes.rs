@@ -29,7 +29,6 @@ impl Shape {
             0...10 if circles => { return Shape::Circle(Circle::random()) },
             _ => panic!("Unknown shape")
         }
-    
     }
 
     pub fn mutate(&mut self) {
@@ -167,6 +166,10 @@ pub struct Triangle {
 }
 
 impl Triangle {
+    pub fn new(x1:f32, y1:f32, x2:f32, y2:f32, x3:f32, y3:f32, color:Color) -> Triangle {
+        Triangle {x1,x2,x3,y1,y2,y3,color}
+    }
+
     pub fn random() -> Triangle {
         Triangle {
             x1: rand(),
@@ -396,6 +399,62 @@ impl Hash for Circle{
 
 impl Eq for Circle {}
 
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Polygon {
+	pub points: Vec<(f32, f32)>,
+    pub color: Color,
+    ymin: f32,
+    ymax: f32
+}
+
+impl Polygon {
+    pub fn new(points: Vec<(f32, f32)>, color: Color) -> Polygon {
+        Polygon {
+            points,
+            color,
+            ymin: 0.,
+            ymax: 0.
+        }
+    }
+}
+
+impl ShapeBehaviour for Polygon {
+    fn mutate(&mut self) {}
+
+    fn svg(&self, width: usize, height: usize) -> String {
+		let mut out = String::new();
+		write!(&mut out, "<polygon color='{}' points='", self.color.rgba())
+            .expect("String concat failed");
+
+        for p in &self.points {
+		    write!(&mut out, "{},{},", p.0 * width as f32, p.1 * height as f32)
+                .expect("String concat failed");
+        }
+		write!(&mut out, "' />")
+            .expect("String concat failed");
+
+		return out;
+    }
+
+    fn to_string(&self) -> String {
+        return self.svg(100, 100);
+    }
+
+    fn draw_onto(&self, c: &mut Canvas) {
+        // Scan line algorithm
+        let ymin = (self.ymin * c.width as f32) as i32;
+        let ymax = (self.ymax * c.width as f32) as i32;
+
+        for y in ymin..ymax {
+            // calculate intersections
+            // fill pairwise
+        }
+
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -409,9 +468,9 @@ mod tests {
 			y: 0.5,
 			rad: 0.5,
             color: Color {
-                r: 100,
-                g: 200,
-                b: 250,
+                r: 0.5,
+                g: 0.6,
+                b: 0.7,
                 opacity: 1.
             }
 		};//Circle::random();
@@ -420,5 +479,23 @@ mod tests {
         //c.save("test.png");
         //c2.save("test2.png");
         //assert_eq!(c.pixels, c2.pixels);
+    }
+
+    #[test]
+    fn polygon_svg(){
+        let p = Polygon::new(vec![(0.1, 0.1), (0.2, 0.2), (0.2, 0.1)], Color::red());
+        assert_eq!(p.svg(100, 100), "<polygon color='rgba(255,0,0,1.0000)' points='10,10,20,20,20,10,' />");
+    }
+
+    #[test]
+    fn polygon_equals_tri(){
+        let t = Triangle::new(0.1, 0.1, 0.2, 0.2, 0.1, 0.2, Color::red());
+        let p = Polygon::new(vec![(0.1, 0.1), (0.2, 0.2), (0.2, 0.2)], Color::red());
+        let mut c = Canvas::new(200, 200, 3);
+        let mut c2 = Canvas::new(200, 200, 3);
+        t.draw_onto(&mut c);
+        p.draw_onto(&mut c2);
+        assert_eq!(c.diff(&c2), 0.);
+
     }
 }

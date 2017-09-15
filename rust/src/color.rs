@@ -71,6 +71,10 @@ impl Color {
     pub fn black() -> Color {
         Color {r:0.,g:0.,b:0.,opacity:1.}
     }
+
+    pub fn red() -> Color {
+        Color {r:255.,g:0.,b:0.,opacity:1.}
+    }
 }
 
 impl fmt::Display for Color {
@@ -123,6 +127,6 @@ mod tests {
     #[test]
     fn test_color_add() { 
         let c = color_add(255., 255., 1.);
-        assert_eq!(c, 255);
+        assert_eq!(c, 255.);
     }
 }
