@@ -2,6 +2,8 @@
 
 ![Fitness 36M](./images/36m.svg)
 ![Fitness 11M, triangles only, face](./images/11m-triangles-small.svg)
+![Lena 26M, triangles only](./images/26m-lena-tri.svg)
+![Starry Night, 39m triangles only](./images/39m-starry-night.svg)
 
 Various implementations of an evolutionary algorithm that aims to
 reproduce the Mona Lisa with randomly mutated overlapping translucent shapes.
