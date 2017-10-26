@@ -18,11 +18,18 @@ pub struct Context {
     pub format: jpeg_decoder::PixelFormat,
     pub mutations: u64,
     pub use_weighting: bool,
+    pub use_triangles: bool,
+    pub use_circles: bool,
+    pub use_rectangles: bool,
     pub cache: Arc<Mutex<CanvasCache>>
 }
 
 impl Context {
-	pub fn new(name:&str, use_weighting: bool) -> Context{
+	pub fn new(name:&str, 
+               use_weighting: bool,
+               use_triangles: bool,
+               use_circles: bool, 
+               use_rectangles: bool) -> Context{
 		let f = File::open(name).expect("failed to open file");
 		let buf = BufReader::new(f);
 		let mut jpg = Decoder::new(buf);
@@ -38,6 +45,9 @@ impl Context {
             format: meta.pixel_format,
             mutations: 0,
             use_weighting: use_weighting,
+            use_triangles: use_triangles,
+            use_circles: use_circles,
+            use_rectangles: use_rectangles,
             cache: Arc::new(Mutex::new(CanvasCache::new(meta.width as usize, meta.height as usize, 3)))
 		};
 	}

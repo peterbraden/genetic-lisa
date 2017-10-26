@@ -20,11 +20,13 @@ pub enum Shape {
 }
 
 impl Shape {
-    pub fn random() -> Shape {
+    pub fn random(triangles: bool, circles: bool, rects: bool) -> Shape {
         match (rand() * 10.) as u8 {
-            0...4 => { return Shape::Circle(Circle::random()) },
-            4...7 => { return Shape::Triangle(Triangle::random()) },
-            7...10 => { return Shape::Rect(Rect::random()) },
+            0...4 if circles => { return Shape::Circle(Circle::random()) },
+            0...7 if triangles => { return Shape::Triangle(Triangle::random()) },
+            0...10 if rects => { return Shape::Rect(Rect::random()) },
+            0...10 if triangles => { return Shape::Triangle(Triangle::random()) },
+            0...10 if circles => { return Shape::Circle(Circle::random()) },
             _ => panic!("Unknown shape")
         }
     
@@ -95,10 +97,10 @@ impl ShapeBehaviour for Rect {
     fn mutate(&mut self) {
         match (rand() * 100.) as u8 {
             0...60 => self.color = self.color.mutate(),
-            60...70 => self.x += rand_adjust(self.x, 0.5, 0., 1.0),
-            70...80 => self.y += rand_adjust(self.y, 0.5, 0., 1.0),
-            80...90 => self.width += rand_adjust(self.width, 0.5, 0., 1.0),
-            90...100 => self.height += rand_adjust(self.height, 0.5, 0., 1.0),
+            60...70 => self.x = rand_adjust(self.x, 0.5, 0., 1.0),
+            70...80 => self.y = rand_adjust(self.y, 0.5, 0., 1.0),
+            80...90 => self.width = rand_adjust(self.width, 0.5, 0., 1.0),
+            90...100 => self.height = rand_adjust(self.height, 0.5, 0., 1.0),
             _ => panic!()
         }
     }
@@ -187,12 +189,12 @@ impl ShapeBehaviour for Triangle {
     fn mutate(&mut self) {
         match (rand() * 100.) as u8 {
             0...40 => self.color = self.color.mutate(),
-            40...50 => self.x1 += rand_adjust(self.x1, 0.5, 0., 1.0),
-            50...60 => self.y1 += rand_adjust(self.y1, 0.5, 0., 1.0),
-            60...70 => self.x2 += rand_adjust(self.x2, 0.5, 0., 1.0),
-            70...80 => self.y2 += rand_adjust(self.y2, 0.5, 0., 1.0),
-            80...90 => self.x3 += rand_adjust(self.x3, 0.5, 0., 1.0),
-            90...100 => self.y3 += rand_adjust(self.y3, 0.5, 0., 1.0),
+            40...50 => self.x1 = rand_adjust(self.x1, 0.5, 0., 1.0),
+            50...60 => self.y1 = rand_adjust(self.y1, 0.5, 0., 1.0),
+            60...70 => self.x2 = rand_adjust(self.x2, 0.5, 0., 1.0),
+            70...80 => self.y2 = rand_adjust(self.y2, 0.5, 0., 1.0),
+            80...90 => self.x3 = rand_adjust(self.x3, 0.5, 0., 1.0),
+            90...100 => self.y3 = rand_adjust(self.y3, 0.5, 0., 1.0),
             _ => panic!()
         }
     }
@@ -323,9 +325,9 @@ impl ShapeBehaviour for Circle {
     fn mutate(&mut self) {
         match (rand() * 10.) as u8 {
             0...4 => self.color = self.color.mutate(),
-            4...6 => self.x += rand_adjust(self.x, 0.5, 0., 1.0),
-            6...8 => self.y += rand_adjust(self.y, 0.5, 0., 1.0),
-            8...10 => self.rad += rand_adjust(self.rad, 0.5, 0.01, 1.0),
+            4...6 => self.x = rand_adjust(self.x, 0.5, 0., 1.0),
+            6...8 => self.y = rand_adjust(self.y, 0.5, 0., 1.0),
+            8...10 => self.rad = rand_adjust(self.rad, 0.5, 0.01, 1.0),
             _ => panic!()
         }
     }
