@@ -9,8 +9,8 @@ reproduce the Mona Lisa with randomly mutated overlapping translucent shapes.
 ## Gallery
 
 <p align="center">
-  ![Fitness 36M](./images/36m.svg)
-  ![Fitness 11M, triangles only, face](./images/11m-triangles-small.svg)
+  <img src="./images/36m.svg">
+  <img src="./images/11m-triangles-small.svg">
 </p>
 
 <p align="center">
