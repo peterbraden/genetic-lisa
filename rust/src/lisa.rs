@@ -172,7 +172,8 @@ impl Individual for Lisa {
         let now = chrono::Utc::now();
 		print!("{} New fittest: {} \n", now, self.str());
         self.ctx.cache.lock().unwrap().insert(&self.shapes);
-        let mut svg = File::create("best.svg").unwrap();
+        let filename = format!("{}.svg", (self.calculate_fitness() / 1000_000.) as u32);
+        let mut svg = File::create(filename).unwrap();
         std::io::Write::write_all(&mut svg, self.svg().as_bytes()).expect("couldn't write");
 
         let mut jsonfile = File::create("best.json").unwrap();

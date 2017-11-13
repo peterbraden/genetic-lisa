@@ -1,9 +1,13 @@
 # The Evolution of a Smile
+<p align="center">
+  <img width="200" height="311" src="./images/lisa-anim.gif">
+</p>
 
 ![Fitness 36M](./images/36m.svg)
 ![Fitness 11M, triangles only, face](./images/11m-triangles-small.svg)
 ![Lena 26M, triangles only](./images/26m-lena-tri.svg)
-![Starry Night, 39m triangles only](./images/39m-starry-night.svg)
+![Starry Night, 36m triangles only](./images/36m-starry-night.svg)
+![Stag, 18m, triangles](./images/18m-stag.svg)
 
 Various implementations of an evolutionary algorithm that aims to
 reproduce the Mona Lisa with randomly mutated overlapping translucent shapes.
@@ -16,10 +20,9 @@ squared.
 
 On it's own, the pixel difference has some really nice properties. For example,
 there's always a way to improve, therefore the fitness function is convex and we
-don't have to optimize for minima.
-
-It also converges nicely on a solution, as with a large enough population, the
-greatest improvement corresponds to the largest shape on the image.
+don't have to optimize for minima. It also converges nicely on a solution, as
+with a large enough population, the greatest improvement corresponds to the
+largest shape on the image.
 
 There are a few reasons why I modified this. For a start, I wanted to get
 results that used few overlapping shapes to make reasonable approximations. The
@@ -48,6 +51,23 @@ minima however, so the function is no longer convex.
 Another experiment I tried was to weight the pixels of the source image by
 entropy (the combined square of neighboring pixels), and to subsequently weight 
 the pixel difference by this.
+
+## Optimisation
+
+With the rust code I first coded a naive version that used a brute force pixel
+drawing function for the circle generation. I then did a lot of profiling. It
+was clear that the majority of the time was spent within the inner loops of the
+pixel rendering.
+
+At this point I also suspected that the allocation of the canvas was also slow.
+Thinking to kill two birds with one stone, I created a cache of canvases
+generated from the list of shapes. Because each generation only mutated a single
+shape, this reduced the amount of computation needed by a massive amount.
+Because manipulating the last shape in the list is the cheapest, I also weighted
+the probability of the last shape manipulation.
+
+These optimisations greatly improved the performance, but I also reimplemented
+the draw functions to use Bresenheim's algorithm. 
 
 ## Project History
 
