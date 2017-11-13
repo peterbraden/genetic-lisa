@@ -8,24 +8,25 @@ reproduce the Mona Lisa with randomly mutated overlapping translucent shapes.
 
 ## Gallery
 
+<h4>Mona Lisa</h4>
 <p align="center">
   <img src="./images/36m.svg">
   <img src="./images/11m-triangles-small.svg">
 </p>
 
+<h4>Lena, triangles only</h4>
 <p align="center">
   <img width="256" height="256" src="./images/26m-lena-tri.svg">
-  <h4>Lena, triangles only</h4>
 </p>
 
+<h4>Starry Night, triangles only</h4>
 <p align="center">
   <img width="448" height="355" src="./images/36m-starry-night.svg">
-  <h4>Starry Night, triangles only</h4>
 </p>
 
+<h4>The Death of the Stag, triangles only.</h4>
 <p align="center">
   <img width="368" height="262" src="./images/18m-stag.svg">
-  <h4>The Death of the Stag, triangles only.</h4>
 </p>
 
 ## Fitness
