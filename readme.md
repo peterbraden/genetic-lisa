@@ -3,14 +3,30 @@
   <img width="200" height="311" src="./images/lisa-anim.gif">
 </p>
 
-![Fitness 36M](./images/36m.svg)
-![Fitness 11M, triangles only, face](./images/11m-triangles-small.svg)
-![Lena 26M, triangles only](./images/26m-lena-tri.svg)
-![Starry Night, 36m triangles only](./images/36m-starry-night.svg)
-![Stag, 18m, triangles](./images/18m-stag.svg)
-
 Various implementations of an evolutionary algorithm that aims to
 reproduce the Mona Lisa with randomly mutated overlapping translucent shapes.
+
+## Gallery
+
+<p align="center">
+  ![Fitness 36M](./images/36m.svg)
+  ![Fitness 11M, triangles only, face](./images/11m-triangles-small.svg)
+</p>
+
+<p align="center">
+  <img width="256" height="256" src="./images/26m-lena-tri.svg">
+  Lena, triangles only
+</p>
+
+<p align="center">
+  <img width="448" height="355" src="./images/36m-starry-night.svg">
+  Starry Night, triangles only 
+</p>
+
+<p align="center">
+  <img width="368" height="262" src="./images/18m-stag.svg">
+  The Death of the Stag, triangles only.
+</p>
 
 ## Fitness
 
