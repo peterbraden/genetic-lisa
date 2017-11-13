@@ -15,17 +15,17 @@ reproduce the Mona Lisa with randomly mutated overlapping translucent shapes.
 
 <p align="center">
   <img width="256" height="256" src="./images/26m-lena-tri.svg">
-  Lena, triangles only
+  <h4>Lena, triangles only</h4>
 </p>
 
 <p align="center">
   <img width="448" height="355" src="./images/36m-starry-night.svg">
-  Starry Night, triangles only 
+  <h4>Starry Night, triangles only</h4>
 </p>
 
 <p align="center">
   <img width="368" height="262" src="./images/18m-stag.svg">
-  The Death of the Stag, triangles only.
+  <h4>The Death of the Stag, triangles only.</h4>
 </p>
 
 ## Fitness
