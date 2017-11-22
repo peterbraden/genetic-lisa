@@ -70,11 +70,11 @@ impl ShapeList {
         return self.shapes.len();
     }
 
-	pub fn svg(&self, width: usize, height: usize) -> String {
+	pub fn svg(&self, width: usize, height: usize, depth: usize) -> String {
 		let mut out = String::new();
 		let mut contents = String::new();
 		for c in &self.shapes{
-			contents.push_str(&c.svg(width, height));
+			contents.push_str(&c.svg(width, height, depth));
 		}
         let svgprelude = "svg xmlns='http://www.w3.org/2000/svg' style='background-color: #000;' ";
 		write!(&mut out, "<{} width='{}' height='{}' >{}</svg>",

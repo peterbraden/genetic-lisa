@@ -5,6 +5,7 @@
 extern crate image;
 use std::path::Path;
 use color::Color;
+use color::color_add;
 use std::cmp::{min, max};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,9 +63,11 @@ impl Canvas {
     #[inline]
     pub fn add_pixel(&mut self, x: i32, y: i32, color: &Color) {
         let i = self.ind_from_pos(x, y) as usize;
-        //if i + self.depth < self.pixels.len() {
+        if self.depth == 1 {
+            self.pixels[i] = color_add(self.pixels[i], color.r, color.opacity);
+        } else {
             color.add_to_vec(&mut self.pixels, i);
-        //}
+        }
     }
 
     #[inline]
@@ -110,15 +113,30 @@ impl Canvas {
     }
 
     pub fn save(&self, filename: &str) {
-        image::save_buffer(&Path::new(filename), 
-            &self.get_pixels().as_slice(), 
-            self.width as u32, 
-            self.height as u32, image::RGB(8)).unwrap()
+        if self.depth == 1 {
+            image::save_buffer(&Path::new(filename), 
+                &self.get_pixels().as_slice(), 
+                self.width as u32, 
+                self.height as u32, image::Gray(8)).unwrap()
+        } else {
+            image::save_buffer(&Path::new(filename), 
+                &self.get_pixels().as_slice(), 
+                self.width as u32, 
+                self.height as u32, image::RGB(8)).unwrap()
+        }
     }
 
     pub fn pixel_at(&self, x: i32, y: i32) -> Color {
         if x > 0 && x < self.width as i32 && y > 0 && y < self.height as i32 {
             let i = self.ind_from_pos(x, y) as usize;
+            if self.depth == 1 {
+                return Color { r: self.pixels[i],
+                               g: self.pixels[i],
+                               b: self.pixels[i],
+                               opacity: 1.
+                }
+            } 
+
             return Color { r: self.pixels[i],
                            g: self.pixels[i + 1],
                            b: self.pixels[i + 2],

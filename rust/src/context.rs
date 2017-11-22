@@ -35,20 +35,25 @@ impl Context {
 		let mut jpg = Decoder::new(buf);
 		let image = jpg.decode().expect("failed to decode image");
 		let meta = jpg.info().unwrap();
+        let depth = match meta.pixel_format {
+            jpeg_decoder::PixelFormat::RGB24 => 3,
+            jpeg_decoder::PixelFormat::L8 => 1,
+            jpeg_decoder::PixelFormat::CMYK32 => 4
+        };
 
 		return Context {
-			image: Canvas::from(meta.width as usize, meta.height as usize, 3, image),
+			image: Canvas::from(meta.width as usize, meta.height as usize, depth, image),
             weightings: Canvas::new(meta.width as usize, meta.height as usize, 3),
 			height: meta.height as i32,
 			width: meta.width as i32,
-            depth: 3,
+            depth: depth as i32,
             format: meta.pixel_format,
             mutations: 0,
             use_weighting: use_weighting,
             use_triangles: use_triangles,
             use_circles: use_circles,
             use_rectangles: use_rectangles,
-            cache: Arc::new(Mutex::new(CanvasCache::new(meta.width as usize, meta.height as usize, 3)))
+            cache: Arc::new(Mutex::new(CanvasCache::new(meta.width as usize, meta.height as usize, depth)))
 		};
 	}
 

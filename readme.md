@@ -99,14 +99,13 @@ time, the source for Roger's program wasn't available (he's subsequently
 released a .NET program with source, although I haven't looked at it), so I
 guessed at how the program worked.
 
-Instead of using a fixed set of polygons, I decided to use ellipses, initially
-because the maths was easier, but subsequently because I like the abstract 'lava
-lamp' look of the intermediary images. Rather than use a fixed array of shapes
-like Roger, I used a fitness function that encouraged less shapes, and allowed
-my mutation operation to add or remove ellipses.
+Instead of using a fixed set of polygons, I decided to use ellipses because I liked
+the abstract 'lava lamp' look of the intermediary images. Rather than use a
+fixed array of shapes like Roger, I used a fitness function that encouraged less 
+shapes, and allowed my mutation operation to add or remove ellipses.
 
-Despite experimenting with a bunch of different image libraries, and using
-psyco, the python program was prohibitively slow, only evolving a few thousand
+Despite experimenting with a bunch of different image libraries the python 
+program was prohibitively slow, only evolving a few thousand
 generations per hour. I experimented with generation populations, varying
 between 10 and 100 - it was interesting looking at how adjusting the parameters
 affected the speed at which the fitness improved.
@@ -114,17 +113,15 @@ affected the speed at which the fitness improved.
 ![One of the python versions](./images/mutation-64225.jpg)
 
 As the bottleneck in the program seemed to be the graphics library, I decided to
-rewrite the program in c, manipulating arrays of pixels so the fitness
-function would be blazing fast. Despite my rusty C skills, the many memory
-leaks, and platform inconsistencies (OS X zero fills malloc allocations, linux
-does not), I got a version running and left it overnight on a friends server.
+rewrite the program in C, manipulating arrays of pixels so the fitness
+function would be fast. Despite my rusty C skills I got a version running and
+left it overnight on a friends server.
 
-Using a generation population of 100, in 19000 generations I had something that
-looked vaguely Da Vinciesque. If you squinted, it looked pretty good. Curiosity
+Using a generation population of 100, in 19,000 generations I had something that
+looked vaguely Da Vinciesque. If you squinted it looked pretty good. Curiosity
 satisfied, I abandoned the project.
 
 ![The result from the C Program](./images/19690.png)
-
 
 ### 2010
 A year later I was playing with html5. I was interested in splitting computation

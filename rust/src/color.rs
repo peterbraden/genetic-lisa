@@ -5,7 +5,7 @@ use rando::{rand, rand_adjust, rand_color_adjust};
 use std::hash::{Hash, Hasher};
 
 #[inline]
-fn color_add(c:f32, c2: f32, opacity: f32) -> f32 {
+pub fn color_add(c:f32, c2: f32, opacity: f32) -> f32 {
 	return c * (1. - opacity) + (c2 * opacity);
 }
 
@@ -18,6 +18,19 @@ pub struct Color {
 }
 
 impl Color {
+    pub fn svg(&self, depth: usize) -> String {
+        if depth == 1 {
+            let mut out = String::new();
+            write!(&mut out,
+                   "rgba({},{},{},{:.4})",
+                    self.r as u8, self.r as u8, self.r as u8, self.opacity)
+                .expect("String concat failed");
+            return out;
+        }
+        return self.rgba()
+    }
+
+
     pub fn rgba(&self) -> String {
 		let mut rgb = String::new();
         write!(&mut rgb,

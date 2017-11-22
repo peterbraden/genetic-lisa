@@ -97,7 +97,9 @@ impl Lisa {
 
 
     pub fn svg(&self) -> String{
-        return self.shapes.svg(self.ctx.width as usize, self.ctx.height as usize);
+        return self.shapes.svg(self.ctx.width as usize,
+                               self.ctx.height as usize,
+                               self.ctx.depth as usize);
     }
 
     fn serialize(&mut self) -> SerializedLisa {
@@ -172,14 +174,16 @@ impl Individual for Lisa {
         let now = chrono::Utc::now();
 		print!("{} New fittest: {} \n", now, self.str());
         self.ctx.cache.lock().unwrap().insert(&self.shapes);
-        let filename = format!("{}.svg", (self.calculate_fitness() / 1000_000.) as u32);
-        let mut svg = File::create(filename).unwrap();
+        //let filename = format!("{}.svg", (self.calculate_fitness() / 1000_000.) as u32);
+        let mut svg = File::create("best.svg").unwrap();
         std::io::Write::write_all(&mut svg, self.svg().as_bytes()).expect("couldn't write");
 
         let mut jsonfile = File::create("best.json").unwrap();
         std::io::Write::write_all(&mut jsonfile,
                 serde_json::to_string(&self.serialize()).expect("Serialize error").as_bytes()
             ).expect("couldn't write json");
+
+        self.ctx.cache.lock().unwrap().canvas_for(&self.shapes).save("best.png");
     }
 }
 

@@ -7,7 +7,7 @@ use std::hash::{Hash, Hasher};
 
 pub trait ShapeBehaviour {
     fn mutate(&mut self);
-    fn svg(&self, width: usize, height: usize) -> String;
+    fn svg(&self, width: usize, height: usize, depth: usize) -> String;
     fn to_string(&self) -> String;
     fn draw_onto(&self, &mut Canvas);
 }
@@ -40,11 +40,11 @@ impl Shape {
         }
     }
 
-    pub fn svg(&self, width: usize, height: usize) -> String{
+    pub fn svg(&self, width: usize, height: usize, depth: usize) -> String{
         match self {
-            &Shape::Triangle(ref t) => t.svg(width, height),
-            &Shape::Rect(ref t) => t.svg(width, height),
-            &Shape::Circle(ref c) => c.svg(width, height)
+            &Shape::Triangle(ref t) => t.svg(width, height, depth),
+            &Shape::Rect(ref t) => t.svg(width, height, depth),
+            &Shape::Circle(ref c) => c.svg(width, height, depth)
         }
     }
 
@@ -109,14 +109,14 @@ impl ShapeBehaviour for Rect {
         return format!("<R{:.6},{:.6},{:.6},{:.6},{}>", self.x, self.y, self.width, self.height, self.color.rgba());
     }
 
-    fn svg(&self, width: usize, height: usize) -> String {
+    fn svg(&self, width: usize, height: usize, depth: usize) -> String {
 		let mut out = String::new();
 		write!(&mut out, "<rect x='{}' y='{}' width='{}' height='{}' fill='{}' />",
                 (self.x * width as f32) as i32,
                 (self.y * height as f32) as i32,
                 ((self.width) * width as f32) as i32,
                 ((self.height) * height as f32) as i32,
-                self.color.rgba())
+                self.color.svg(depth))
 			.expect("String concat failed");
 		return out;
     }
@@ -206,7 +206,7 @@ impl ShapeBehaviour for Triangle {
                                                         self.color.rgba());
     }
 
-    fn svg(&self, width: usize, height: usize) -> String {
+    fn svg(&self, width: usize, height: usize, depth: usize) -> String {
 		let mut out = String::new();
 		write!(&mut out, "<polygon points='{},{} {},{} {},{}' fill='{}' />",
                 (self.x1 * width as f32) as i32,
@@ -215,7 +215,7 @@ impl ShapeBehaviour for Triangle {
                 (self.y2 * height as f32) as i32,
                 (self.x3 * width as f32) as i32,
                 (self.y3 * height as f32) as i32,
-                self.color.rgba())
+                self.color.svg(depth))
 			.expect("String concat failed");
 		return out;
     }
@@ -333,13 +333,13 @@ impl ShapeBehaviour for Circle {
     }
 
 
-	fn svg(&self, width: usize, height: usize) -> String {
+	fn svg(&self, width: usize, height: usize, depth: usize) -> String {
 		let mut out = String::new();
 		let cx = (self.x * width as f32) as i32;
 		let cy = (self.y * height as f32) as i32;
 		let rad = (self.rad * width as f32) as i32;
 		write!(&mut out, "<circle cx='{}' cy='{}' r='{}' fill='{}' />",
-                cx, cy, rad, self.color.rgba())
+                cx, cy, rad, self.color.svg(depth))
 			.expect("String concat failed");
 		return out;
 	}
