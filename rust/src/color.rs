@@ -1,7 +1,7 @@
 use std::fmt::Write;
 use std::fmt;
 use std::ops::{Mul, Add};
-use rando::{rand, rand_adjust, rand_color_adjust};
+use rando::{rand_adjust, rand_color_adjust};
 use std::hash::{Hash, Hasher};
 
 #[inline]
@@ -41,36 +41,11 @@ impl Color {
     }
 
     pub fn mutate(&self) -> Color{
-        match (rand() * 100.) as u8 {
-            0...25 => { return Color{
-                                r: rand_color_adjust(self.r),
-                                g: self.g,
-                                b: self.b,
-                                opacity: self.opacity,
-                            }
-                        },
-            26...50 => { return Color{
-                                r: self.r,
-                                g: rand_color_adjust(self.g),
-                                b: self.b,
-                                opacity: self.opacity,
-                            }
-                        },
-            51...75 => { return Color{
-                                r: self.r,
-                                g: self.g,
-                                b: rand_color_adjust(self.b),
-                                opacity: self.opacity,
-                            }
-                        },
-            76...100 =>{ return Color{
-                                r: self.r,
-                                g: self.g,
-                                b: self.b,
-                                opacity: rand_adjust(self.opacity, 0.1, 0., 1.),
-                            }
-                        },
-            _ => panic!()
+        return Color{
+            r: rand_color_adjust(self.r, 0.1),
+            g: rand_color_adjust(self.g, 0.1),
+            b: rand_color_adjust(self.b, 0.1),
+            opacity: rand_adjust(self.opacity, 0.1, 0., 1.),
         }
     }
 

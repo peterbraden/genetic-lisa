@@ -48,14 +48,14 @@ impl ShapeList {
 
     pub fn mutate(&mut self) {
         match (rand() * 100.) as u8 {
-            0...90 => {
+            0...80 => {
                 // Bias end mutations as they're cheaper
                 let l = self.shapes.len();
                 if l > 0 {
                     self.shapes[l - 1].mutate();
                 }
             },
-            90...100 => {
+            80...100 => {
                 match choose(&mut self.shapes) {
                     Some(m) => { m.mutate(); }
                     None => {}

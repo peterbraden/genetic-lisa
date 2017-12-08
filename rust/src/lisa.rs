@@ -130,19 +130,19 @@ impl Individual for Lisa {
 
     fn mutate(&mut self) {
         match (rand() * 100.) as u8 {
-            0...5 => {
+            0...10 => {
                 self.shapes.add_random(&self.ctx);
                 self.mutation_appends += 1;
                 },
-            5...10 => {
+            10...15 => {
                 self.shapes.remove_shape();
                 self.mutation_pops += 1;
                 },
-            10...15 => {
+            15...20 => {
                 self.shapes.swap();
                 self.mutation_swaps +=1;
                 }
-            10...100 => {
+            20...100 => {
                 self.shapes.mutate();
                 self.mutation_changes += 1;
                 },
@@ -155,14 +155,14 @@ impl Individual for Lisa {
         let ctx = Arc::clone(&mut self.ctx);
         let mut cache = ctx.cache.lock().unwrap();
 		let canv = cache.canvas_for(&self.shapes);
-        
+
         if ctx.use_weighting {
-            // Pixel difference * 100% + 0.1% per circle
-            let fitness = canv.weighted_diff(&ctx.image, &ctx.weightings, 0.01);
-		    return fitness * (1. + 0.001 * (self.shapes.len() as f64));
+            // Pixel difference * 100% + 0.01% per shape
+            let fitness = canv.weighted_diff(&ctx.image, &ctx.weightings, 0.001);
+		    return fitness; // * (1. + 0.0001 * (self.shapes.len() as f64));
         } else {
             let fitness = canv.diff(&ctx.image);
-		    return fitness * (1. + 0.001 * (self.shapes.len() as f64));
+		    return fitness;// * (1. + 0.0001 * (self.shapes.len() as f64));
         }
     }
 

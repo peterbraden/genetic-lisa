@@ -1,6 +1,6 @@
 # The Evolution of a Smile
 <p align="center">
-  <img width="200" height="311" src="./images/lisa-anim.gif">
+  <img width="224" height="334" src="./images/lisa.svg" />
 </p>
 
 Various implementations of an evolutionary algorithm that aims to
@@ -10,6 +10,7 @@ reproduce the Mona Lisa with randomly mutated overlapping translucent shapes.
 
 <h4>Mona Lisa</h4>
 <p align="center">
+  <img src='./images/lisa-anim.gif'>
   <img src="./images/36m.svg">
   <img src="./images/11m-triangles-small.svg">
 </p>
@@ -153,5 +154,18 @@ speed up the evolution.
 
 
 
+
+
+### Algorithm (Ideas)
+
+- Mutate shapelist
+- Get canvas for shapelist
+  - Iterate backward through shapelist until cached canvas found
+  - Render new shape
+  - Continue rendering shapes through to end of shapelist.
+    -+ Is there a way to
+      do this from the cache?
+    -+ We only need to rerender over the new shape, if we have the end-cache of
+        the previous list.
 
 
