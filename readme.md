@@ -1,6 +1,6 @@
 # The Evolution of a Smile
 <p align="center">
-  <img width="228" height="668" src="./images/lisa.svg" />
+  <img width="448" height="668" src="./images/lisa.svg" />
 </p>
 
 Various implementations of an evolutionary algorithm that aims to
