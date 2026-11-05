@@ -75,10 +75,25 @@ splat/tests/                # compositing, leave-one-out, density rules, SVG par
 - [x] Training loop, SVG export, scoring tool
 - [x] λ sweep on the Mona Lisa; results recorded
 
+## Second iteration
+
+Known:
+- Culled rendering matches dense rendering (images and gradients, by test)
+  and, with separable SSIM, a step is ~8x cheaper on CPU (77 ms vs 611 ms at
+  168 ellipses). A full run takes ~2.5 min rather than ~4.
+- Run-to-run noise is about ±3% in fitness.
+- Relocation and top/bottom reordering, both exact in their cost estimates
+  and tested, did not improve fitness beyond that noise (4 runs each).
+  Disabled by default.
+
+Assumptions not yet tested:
+- Relocation may help only if applied late, once spawning has ceased; the
+  trial applied it throughout densification.
+- Given the noise, several short restarts with the best kept (a population,
+  as in the earlier evolutionary versions) may be the cheapest gain.
+
 ## Possible next steps
 
-- Relocation (3DGS-MCMC): move the least valuable ellipses to high-error
-  sites instead of prune-then-spawn, to escape local minima at fixed `N`.
-- Tile culling to reduce the dense `N·H·W` cost.
-- Reordering: the painting order is fixed at insertion; swaps could be tested
-  with the same exact leave-one-out machinery.
+- Restarts or a small population over the stochasticity identified above.
+- Relocation restricted to the equilibrium phase.
+- Larger source images, where culling matters more.

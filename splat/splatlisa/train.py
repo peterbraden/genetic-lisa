@@ -30,7 +30,7 @@ class Config:
     iters: int = 2500
     lam: float = 1e-5               # MSE an ellipse must save to be kept
     max_size: int | None = None     # downscale the source so its longest side is this
-    device: str = "auto"
+    device: str = "cpu"             # with culling, MPS offers no gain at this scale
     seed: int = 0
     # Rendering: soft edge width (pixels) annealed from tau_start to tau_end.
     tau_start: float = 2.0
@@ -51,6 +51,9 @@ class Config:
     max_prune: float = 0.1          # fraction of N removed per step
     min_opacity: float = 0.01
     spawn_k: int = 8
+    relocate_k: int = 0             # relocations per step; no measured gain, so off
+    relocate_margin: float = 1.0    # site saving must exceed this times the shape's value
+    reorder_moves: int = 0          # moves per step; no measured gain, so off
     spawn_half_widths: list[int] = field(default_factory=lambda: [1, 2, 4, 8, 16, 32])
     # Logging.
     log_every: int = 100
@@ -58,9 +61,9 @@ class Config:
 
 
 def pick_device(name: str) -> torch.device:
-    if name != "auto":
-        return torch.device(name)
-    return torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    if name == "auto":
+        return torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    return torch.device(name)
 
 
 def load_image(path: str, max_size: int | None) -> torch.Tensor:
@@ -126,6 +129,11 @@ def train(cfg: Config) -> dict:
             n = model.n
             pruned = density.prune(model, target, tau, cfg.lam, cfg.min_opacity,
                                    math.ceil(cfg.max_prune * n))
+            with torch.no_grad():
+                cur = render(model.p, model.bg, h, w, tau)
+            relocated = density.relocate(model, cur, target, tau, cfg.spawn_half_widths,
+                                         cfg.relocate_k, cfg.relocate_margin)
+            moved = density.reorder(model, target, tau, cfg.reorder_moves, 0.1 * cfg.lam)
             g = model.mean_grad()
             gq = torch.quantile(g, torch.tensor([0.5, 0.9], device=dev)).tolist() if model.n > 1 else [0, 0]
             clones, splits = density.clone_split(model, cfg.grad_threshold, cfg.size_threshold,
@@ -135,6 +143,7 @@ def train(cfg: Config) -> dict:
             spawned = density.spawn(model, cur, target, cfg.spawn_half_widths, cfg.spawn_k, min_gain)
             model.reset_stats()
             event = (f" -{pruned} clone+{clones} split+{splits} spawn+{spawned}"
+                     f" reloc={relocated} moved={moved}"
                      f" grad p50={gq[0]:.1e} p90={gq[1]:.1e}")
 
         if it % cfg.log_every == 0 or event:

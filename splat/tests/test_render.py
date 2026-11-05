@@ -12,10 +12,12 @@ from splatlisa.render import (
     coverage,
     hard_alphas,
     make_params,
+    move_cost,
     mse,
     pixel_grid,
     removal_cost,
     render,
+    render_dense,
     render_hard,
 )
 from splatlisa.svg import to_svg
@@ -53,6 +55,19 @@ def test_removal_cost_matches_brute_force():
         for i in range(alpha.shape[0])
     ])
     assert torch.allclose(removal_cost(alpha, colour, bg, target), expected, atol=1e-6)
+
+
+def test_move_cost_matches_brute_force():
+    alpha, colour, bg = random_layers(n=6, seed=2)
+    target = torch.rand(3, *alpha.shape[1:], generator=torch.Generator().manual_seed(3))
+    base = mse(paint_sequentially(alpha, colour, bg), target)
+    n = alpha.shape[0]
+    top, bottom = move_cost(alpha, colour, bg, target)
+    for i in range(n):
+        rest = [j for j in range(n) if j != i]
+        for order, got in ((rest + [i], top[i]), ([i] + rest, bottom[i])):
+            expected = mse(paint_sequentially(alpha[order], colour[order], bg), target) - base
+            assert got.item() == pytest.approx(expected.item(), abs=1e-6)
 
 
 def test_removal_cost_is_negative_for_a_harmful_shape():
@@ -150,3 +165,35 @@ def test_ramp_edge_approximates_anti_aliased_svg_better_than_sigmoid():
     hard = render_hard(p, bg, h, w, ss=16)
     ramp = render(p, bg, h, w, 0.5, ramp=True)
     assert mse(ramp, hard) < 0.2 * mse(render(p, bg, h, w, 0.5), hard)
+
+
+@pytest.mark.parametrize("tau,ramp", [(2.0, False), (0.5, False), (0.5, True)])
+def test_culled_render_matches_dense_render_and_gradients(tau, ramp):
+    g = torch.Generator().manual_seed(6)
+    n, h, w = 15, 33, 41
+    p = make_params(
+        torch.rand(n, 2, generator=g) * torch.tensor([w + 10.0, h + 10.0]) - 5,  # some partly off-canvas
+        torch.rand(n, 2, generator=g) * 10 + 0.5,
+        torch.rand(n, generator=g) * 3,
+        torch.rand(n, 3, generator=g),
+        torch.rand(n, generator=g) * 0.8 + 0.1,
+    )
+    p["log_s"][0] = math.log(60.0)  # one shape covering the whole canvas
+    bg = torch.tensor([0.1, -0.3, 0.2])
+    target = torch.rand(3, h, w, generator=g)
+    grads = []
+    for fn in (render, render_dense):
+        q = {k: v.clone().requires_grad_(True) for k, v in p.items()}
+        img = fn(q, bg, h, w, tau, ramp)
+        mse(img, target).backward()
+        grads.append((img.detach(), {k: v.grad for k, v in q.items()}))
+    (culled, g_culled), (dense, g_dense) = grads
+    assert (culled - dense).abs().max() < 3e-3
+    for k in p:
+        assert torch.allclose(g_culled[k], g_dense[k], atol=1e-4, rtol=0.02), k
+
+
+def test_culled_render_of_no_shapes_is_background():
+    p = {k: v[:0] for k, v in make_params([[1, 1]], [[1, 1]], [0], [[0, 0, 0]], [0.5]).items()}
+    bg = torch.tensor([0.0, 1.0, -1.0])
+    assert torch.allclose(render(p, bg, 4, 5, 1.0), torch.sigmoid(bg)[:, None, None].expand(3, 4, 5))

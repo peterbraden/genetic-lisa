@@ -50,23 +50,30 @@ def coverage(p: dict[str, Tensor], grid: Tensor, tau: float | None, ramp: bool =
     the box-filtered coverage of a straight edge: what an anti-aliasing SVG
     rasteriser produces. With `tau=None` the edge is hard (binary).
     """
-    d = grid[None] - p["mu"][:, None, None, :]
-    c = torch.cos(p["theta"])[:, None, None]
-    s = torch.sin(p["theta"])[:, None, None]
+    expand = lambda x: x[:, None, None]
+    return _cover(
+        grid[None] - p["mu"][:, None, None, :],
+        expand(p["theta"]),
+        expand(torch.exp(p["log_s"][:, 0])),
+        expand(torch.exp(p["log_s"][:, 1])),
+        tau,
+        ramp,
+    )
+
+
+def _cover(d: Tensor, theta: Tensor, sx: Tensor, sy: Tensor, tau: float | None, ramp: bool) -> Tensor:
+    """Coverage at offsets `d` (..., 2) from the centre; other arguments
+    broadcast against d[..., 0]."""
+    c, s = torch.cos(theta), torch.sin(theta)
     u = d[..., 0] * c + d[..., 1] * s
     v = -d[..., 0] * s + d[..., 1] * c
-    sc = torch.exp(p["log_s"])
-    r2 = (u / sc[:, 0, None, None]) ** 2 + (v / sc[:, 1, None, None]) ** 2
+    r2 = (u / sx) ** 2 + (v / sy) ** 2
     if tau is None:
         return (r2 <= 1).float()
     r = torch.sqrt(r2 + 1e-12)
     # Ellipse radius in the direction of the sample: |(u, v)| / r. At the
     # centre this is ill-defined, so fall back to the geometric mean radius.
-    rho = torch.where(
-        r > 1e-3,
-        torch.sqrt(u * u + v * v + 1e-12) / r,
-        torch.sqrt(sc[:, 0] * sc[:, 1])[:, None, None],
-    )
+    rho = torch.where(r > 1e-3, torch.sqrt(u * u + v * v + 1e-12) / r, torch.sqrt(sx * sy).expand_as(r))
     dist = (1 - r) * rho
     if ramp:
         return (0.5 + dist).clamp(0, 1)
@@ -97,10 +104,74 @@ def composite(alpha: Tensor, colour: Tensor, bg: Tensor) -> Tensor:
     return img + t_bg[None] * bg[:, None, None]
 
 
-def render(p: dict[str, Tensor], bg_logit: Tensor, h: int, w: int, tau: float, ramp: bool = False) -> Tensor:
-    """Differentiable soft render, (3, H, W)."""
+def render_dense(p: dict[str, Tensor], bg_logit: Tensor, h: int, w: int, tau: float, ramp: bool = False) -> Tensor:
+    """Differentiable soft render evaluating every shape at every pixel."""
     grid = pixel_grid(h, w, device=bg_logit.device)
     return composite(alphas(p, grid, tau, ramp), torch.sigmoid(p["col"]), torch.sigmoid(bg_logit))
+
+
+def edge_margin(tau: float | None, ramp: bool) -> float:
+    """Distance beyond the ellipse at which soft coverage is negligible."""
+    if tau is None or ramp:
+        return 1.0
+    return 6.0 * tau  # sigmoid(-6) < 0.0025
+
+
+@torch.no_grad()
+def footprint(p: dict[str, Tensor], h: int, w: int, margin: float) -> tuple[Tensor, Tensor]:
+    """(shape, pixel) pairs for every pixel in each shape's bounding box,
+    grown by `margin`. Pairs are sorted by pixel, then by shape index."""
+    mu, sc, th = p["mu"], torch.exp(p["log_s"]), p["theta"]
+    c, s = torch.cos(th), torch.sin(th)
+    hx = torch.sqrt((sc[:, 0] * c) ** 2 + (sc[:, 1] * s) ** 2) + margin
+    hy = torch.sqrt((sc[:, 0] * s) ** 2 + (sc[:, 1] * c) ** 2) + margin
+    x0 = torch.floor(mu[:, 0] - hx).clamp(0, w).long()
+    x1 = torch.ceil(mu[:, 0] + hx).clamp(0, w).long()
+    y0 = torch.floor(mu[:, 1] - hy).clamp(0, h).long()
+    y1 = torch.ceil(mu[:, 1] + hy).clamp(0, h).long()
+    bw, bh = x1 - x0, y1 - y0
+    count = bw * bh
+    ids = torch.repeat_interleave(torch.arange(mu.shape[0], device=mu.device), count)
+    offset = torch.arange(ids.shape[0], device=mu.device) - (torch.cumsum(count, 0) - count)[ids]
+    pix = (y0[ids] + offset // bw[ids]) * w + x0[ids] + offset % bw[ids]
+    order = torch.sort(pix, stable=True).indices
+    return ids[order], pix[order]
+
+
+def render(p: dict[str, Tensor], bg_logit: Tensor, h: int, w: int, tau: float, ramp: bool = False) -> Tensor:
+    """Differentiable soft render, (3, H, W), evaluating each shape only
+    within its bounding box (as 3DGS evaluates Gaussians only in their tiles).
+
+    Pairs are packed into a (pixels, K) matrix, K being the deepest pixel's
+    shape count, in painting order, and composited along K.
+    """
+    dev = bg_logit.device
+    bg = torch.sigmoid(bg_logit)
+    ids, pix = footprint(p, h, w, edge_margin(tau, ramp))
+    if ids.numel() == 0:
+        return bg[:, None, None].expand(3, h, w).clone()
+    with torch.no_grad():
+        per_pixel = torch.zeros(h * w, dtype=torch.long, device=dev).index_add_(0, pix, torch.ones_like(pix))
+        first = torch.cumsum(per_pixel, 0) - per_pixel
+        rank = torch.arange(pix.shape[0], device=dev) - first[pix]
+        depth = int(per_pixel.max())
+    q = {k: v[ids] for k, v in p.items()}
+    centres = torch.stack([pix % w, pix // w], dim=1).float() + 0.5
+    a = _pair_alpha(q, centres, tau, ramp)
+    layers = torch.zeros(h * w, depth, device=dev).index_put((pix, rank), a)
+    colours = torch.zeros(h * w, depth, 3, device=dev).index_put((pix, rank), torch.sigmoid(q["col"]))
+    # Composite each pixel's list as in `composite`, with layers on dim 1.
+    log1m = torch.log1p(-layers.clamp(max=1 - 1e-6))
+    inclusive = torch.flip(torch.cumsum(torch.flip(log1m, [1]), 1), [1])
+    weight = layers * torch.exp(inclusive - log1m)
+    img = torch.einsum("pk,pkc->pc", weight, colours) + torch.exp(inclusive[:, 0])[:, None] * bg
+    return img.T.reshape(3, h, w)
+
+
+def _pair_alpha(q: dict[str, Tensor], centres: Tensor, tau: float | None, ramp: bool) -> Tensor:
+    """Alpha of shape q[i] at point centres[i], (M,)."""
+    cov = _cover(centres - q["mu"], q["theta"], torch.exp(q["log_s"][:, 0]), torch.exp(q["log_s"][:, 1]), tau, ramp)
+    return cov * torch.sigmoid(q["op"])
 
 
 @torch.no_grad()
@@ -155,6 +226,38 @@ def removal_cost(alpha: Tensor, colour: Tensor, bg: Tensor, target: Tensor) -> T
         out[i] = (changed**2).mean() - base
         below = below * (1 - a) + a * c
     return out
+
+
+@torch.no_grad()
+def move_cost(alpha: Tensor, colour: Tensor, bg: Tensor, target: Tensor) -> tuple[Tensor, Tensor]:
+    """Exact change in MSE from moving each shape to the top, or to the
+    bottom, of the painting order. Returns (top, bottom), each (N,).
+
+    Both start from the image without shape i, W_i = C + T_i a_i (B_i - c_i):
+    - top:    W_i (1 - a_i) + a_i c_i
+    - bottom: W_i + P_i T_i a_i (c_i - bg), where P_i T_i is the background's
+      transmittance through every shape other than i.
+    """
+    n = alpha.shape[0]
+    top = torch.empty(n, device=alpha.device)
+    bottom = torch.empty(n, device=alpha.device)
+    if n == 0:
+        return top, bottom
+    t, _ = transmittance_above(alpha)
+    img = composite(alpha, colour, bg)
+    base = ((img - target) ** 2).mean()
+    below = bg[:, None, None].expand_as(img).clone()
+    beneath = torch.ones_like(alpha[0])  # P_i: transmittance of shapes below i
+    bgc = bg[:, None, None]
+    for i in range(n):
+        a = alpha[i]
+        c = colour[i][:, None, None]
+        without = img + t[i] * a * (below - c)
+        top[i] = ((without * (1 - a) + a * c - target) ** 2).mean() - base
+        bottom[i] = ((without + beneath * t[i] * a * (c - bgc) - target) ** 2).mean() - base
+        below = below * (1 - a) + a * c
+        beneath = beneath * (1 - a)
+    return top, bottom
 
 
 def natural(p: dict[str, Tensor]) -> dict[str, Tensor]:

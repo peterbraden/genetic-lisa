@@ -95,7 +95,7 @@ def test_spawn_targets_largest_error_region_with_its_colour():
     target = square_target()
     img = torch.full_like(target, 0.5)
     cands = density.spawn_candidates(img, target, [1, 2, 4, 8], k=1, min_gain=0)
-    (x, y, r, c) = cands[0]
+    x, y, r, c, _ = cands[0]
     assert 20 <= x <= 32 and 10 <= y <= 22
     assert r > 3
     assert torch.allclose(c, torch.tensor([0.9, 0.1, 0.1]), atol=0.05)
@@ -152,3 +152,51 @@ def test_prune_removes_near_transparent_shapes():
     assert density.prune(m, target, 0.5, lam=0.0, min_opacity=0.01, max_remove=5) == 1
     assert m.n == 1
     assert torch.sigmoid(m.p["col"][0, 0]) > 0.9
+
+
+def test_select_relocations_pairs_cheapest_shapes_with_best_sites():
+    cost = torch.tensor([5e-4, 1e-5, 2e-4, -1e-6])
+    # Best site beats shape 3 (harmful) and shape 1, but not shape 2.
+    assert density.select_relocations(cost, [1e-3, 5e-5, 1e-4], margin=1.0) == [(3, 0), (1, 1)]
+    # A higher margin rejects the marginal swap.
+    assert density.select_relocations(cost, [1e-3, 5e-5], margin=10.0) == [(3, 0)]
+    assert density.select_relocations(cost, [], margin=1.0) == []
+
+
+def test_relocate_moves_a_useless_shape_to_the_error():
+    # A grey disc on grey background contributes nothing; the red square is unexplained.
+    target = square_target()
+    p = make_params([[5, 30]], [[3, 3]], [0], [[0.5, 0.5, 0.5]], [0.8])
+    m = model_of(p)
+    img = render(m.p, m.bg, 40, 40, 0.5).detach()
+    assert density.relocate(m, img, target, 0.5, [2, 4, 8], k=2) == 1
+    assert m.n == 1
+    x, y = m.p["mu"][0].tolist()
+    assert 20 <= x <= 32 and 10 <= y <= 22
+    assert torch.sigmoid(m.p["col"][0, 0]) > 0.8
+
+
+def test_relocate_keeps_shapes_that_earn_more_than_any_site():
+    target = square_target()
+    p = make_params([[26, 16]], [[6.5, 6.5]], [0], [[0.9, 0.1, 0.1]], [0.95])
+    m = model_of(p)
+    img = render(m.p, m.bg, 40, 40, 0.5).detach()
+    before = m.p["mu"].detach().clone()
+    assert density.relocate(m, img, target, 0.5, [2, 4, 8], k=2) == 0
+    assert torch.equal(m.p["mu"].detach(), before)
+
+
+def test_reorder_moves_occluding_shape_beneath():
+    # Target: small red disc visible on a large blue disc. The model paints them
+    # the wrong way round, so the blue disc hides the red one.
+    red = ([[20, 20]], [[4, 4]], [[0.9, 0.1, 0.1]])
+    blue = ([[20, 20]], [[12, 12]], [[0.1, 0.1, 0.9]])
+    right = make_params(blue[0] + red[0], blue[1] + red[1], [0, 0], blue[2] + red[2], [0.95, 0.95])
+    wrong = make_params(red[0] + blue[0], red[1] + blue[1], [0, 0], red[2] + blue[2], [0.95, 0.95])
+    target = render(right, inv_sigmoid(torch.full((3,), 0.5)), 40, 40, 0.5).detach()
+    m = model_of(wrong)
+    assert density.reorder(m, target, 0.5, max_moves=3, min_gain=1e-7) == 1
+    # Red now on top.
+    assert torch.sigmoid(m.p["col"][-1, 0]) > 0.8
+    # Already optimal: no further moves.
+    assert density.reorder(m, target, 0.5, max_moves=3, min_gain=1e-7) == 0

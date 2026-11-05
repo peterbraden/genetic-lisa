@@ -4,6 +4,10 @@
 - spawn (after Image-GS): placed where a flat patch would most reduce error.
 - prune: removes shapes whose exact leave-one-out MSE saving is below the
   per-shape cost `lam` of the fitness function.
+- relocate (after 3DGS-MCMC): moves the least valuable shapes to spawn sites
+  whose estimated saving exceeds what the shape currently provides.
+- reorder: moves shapes to the top or bottom of the painting order when that
+  exactly reduces the error.
 """
 
 from __future__ import annotations
@@ -15,7 +19,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from .model import Model
-from .render import FIELDS, alphas, inv_sigmoid, pixel_grid, removal_cost
+from .render import FIELDS, alphas, inv_sigmoid, move_cost, pixel_grid, removal_cost
 
 # Radius of a disc with the same area as a square of half-width h, over h.
 DISC_PER_BOX = 2 / math.sqrt(math.pi)
@@ -98,14 +102,15 @@ def spawn_candidates(
     half_widths: list[int],
     k: int,
     min_gain: float,
-) -> list[tuple[float, float, float, Tensor]]:
+) -> list[tuple[float, float, float, Tensor, float]]:
     """Locations and sizes where painting an opaque disc of the local mean
     target colour would most reduce the summed squared error.
 
     For a box of half-width h, the saving is
         A * (mean |img - target|^2 - var(target))
     computed for every pixel with box filters. Returns up to `k`
-    non-overlapping (x, y, radius, colour) whose saving exceeds `min_gain`.
+    non-overlapping (x, y, radius, colour, saving), best first, whose saving
+    exceeds `min_gain`.
     """
     _, h, w = target.shape
     err2 = ((img - target) ** 2).sum(0, keepdim=True)
@@ -134,7 +139,7 @@ def spawn_candidates(
         y, x = divmod(rem, w)
         hw = half_widths[si]
         radius = (2 * hw + 1) / 2 * DISC_PER_BOX
-        out.append((x + 0.5, y + 0.5, radius, colours[si][:, y, x].clamp(0.02, 0.98)))
+        out.append((x + 0.5, y + 0.5, radius, colours[si][:, y, x].clamp(0.02, 0.98), best))
         # Suppress neighbouring candidates so spawns do not stack.
         near = (xs - x) ** 2 + (ys - y) ** 2 <= radius**2
         gain[:, near] = -float("inf")
@@ -154,17 +159,90 @@ def spawn(
     cands = spawn_candidates(img, target, half_widths, k, min_gain)
     if not cands:
         return 0
-    dev = model.device
-    rows = {
-        "mu": torch.tensor([[x, y] for x, y, _, _ in cands], device=dev),
-        "log_s": torch.log(torch.tensor([[r, r] for _, _, r, _ in cands], device=dev)),
-        "theta": torch.zeros(len(cands), device=dev),
-        "col": inv_sigmoid(torch.stack([c for *_, c in cands]).to(dev)),
-        "op": inv_sigmoid(torch.full((len(cands),), opacity, device=dev)),
-    }
     order = torch.arange(model.n + len(cands))
-    model.restructure(order, rows)
+    model.restructure(order, candidate_rows(cands, opacity, model.device))
     return len(cands)
+
+
+def candidate_rows(cands, opacity: float, device) -> dict[str, Tensor]:
+    """Parameter rows for circles at spawn candidates."""
+    return {
+        "mu": torch.tensor([[c[0], c[1]] for c in cands], device=device),
+        "log_s": torch.log(torch.tensor([[c[2], c[2]] for c in cands], device=device)),
+        "theta": torch.zeros(len(cands), device=device),
+        "col": inv_sigmoid(torch.stack([c[3] for c in cands]).to(device)),
+        "op": inv_sigmoid(torch.full((len(cands),), opacity, device=device)),
+    }
+
+
+def select_relocations(cost: Tensor, gains: list[float], margin: float) -> list[tuple[int, int]]:
+    """Pair the cheapest shapes with the best sites, (shape, site), while a
+    site's estimated saving exceeds `margin` times the shape's value. Both are
+    in MSE units; `gains` must be in descending order."""
+    pairs = []
+    for site, victim in zip(range(len(gains)), torch.argsort(cost).tolist()):
+        if gains[site] <= margin * max(float(cost[victim]), 0.0):
+            break
+        pairs.append((victim, site))
+    return pairs
+
+
+@torch.no_grad()
+def relocate(
+    model: Model,
+    img: Tensor,
+    target: Tensor,
+    tau: float,
+    half_widths: list[int],
+    k: int,
+    margin: float = 1.0,
+    opacity: float = 0.8,
+) -> int:
+    """Move up to `k` low-value shapes to high-error sites, keeping N fixed.
+    Relocated shapes go to the top of the stack with fresh optimiser state."""
+    if model.n == 0 or k <= 0:
+        return 0
+    p = model.detached()
+    _, h, w = target.shape
+    a = alphas(p, pixel_grid(h, w, device=model.device), tau)
+    cost = removal_cost(a, torch.sigmoid(p["col"]), torch.sigmoid(model.bg), target)
+    cands = spawn_candidates(img, target, half_widths, k, 0.0)
+    # Spawn gains are summed squared error; convert to MSE.
+    pairs = select_relocations(cost, [c[4] / (3 * h * w) for c in cands], margin)
+    if not pairs:
+        return 0
+    victims = {v for v, _ in pairs}
+    keep = [i for i in range(model.n) if i not in victims]
+    rows = candidate_rows([cands[s] for _, s in pairs], opacity, model.device)
+    model.restructure(torch.tensor(keep + list(range(model.n, model.n + len(pairs)))), rows)
+    return len(pairs)
+
+
+@torch.no_grad()
+def reorder(model: Model, target: Tensor, tau: float, max_moves: int, min_gain: float) -> int:
+    """Greedily move single shapes to the top or bottom of the stack while
+    that reduces MSE by more than `min_gain`. Exact; returns moves made."""
+    if model.n < 2 or max_moves <= 0:
+        return 0
+    p = model.detached()
+    _, h, w = target.shape
+    a = alphas(p, pixel_grid(h, w, device=model.device), tau)
+    colour, bg = torch.sigmoid(p["col"]), torch.sigmoid(model.bg)
+    perm = torch.arange(model.n, device=model.device)
+    moves = 0
+    for _ in range(max_moves):
+        top, bottom = move_cost(a[perm], colour[perm], bg, target)
+        i_top, i_bot = int(torch.argmin(top)), int(torch.argmin(bottom))
+        if min(float(top[i_top]), float(bottom[i_bot])) >= -min_gain:
+            break
+        if top[i_top] <= bottom[i_bot]:
+            perm = torch.cat([perm[:i_top], perm[i_top + 1 :], perm[i_top : i_top + 1]])
+        else:
+            perm = torch.cat([perm[i_bot : i_bot + 1], perm[:i_bot], perm[i_bot + 1 :]])
+        moves += 1
+    if moves:
+        model.restructure(perm)
+    return moves
 
 
 def select_prunable(cost: Tensor, opacity: Tensor, lam: float, min_opacity: float, max_remove: int) -> Tensor:
