@@ -9,7 +9,7 @@ import argparse
 import json
 import math
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
@@ -32,32 +32,51 @@ class Config:
     max_size: int | None = None     # downscale the source so its longest side is this
     device: str = "cpu"             # with culling, MPS offers no gain at this scale
     seed: int = 0
+    # Defaults from an Optuna search over the corpus tuning split (scripts/tune.py,
+    # trial 78, rounded); see README.
     # Rendering: soft edge width (pixels) annealed from tau_start to tau_end.
-    tau_start: float = 2.0
-    tau_end: float = 0.5
-    anneal_until: float = 0.6       # fraction of iters
-    ramp_from: float = 0.8          # then train on the anti-aliased (SVG) edge
+    tau_start: float = 1.0
+    tau_end: float = 0.31
+    anneal_until: float = 0.76      # fraction of iters
+    ramp_from: float = 0.78         # then train on the anti-aliased (SVG) edge
     # Loss.
-    ssim_weight: float = 0.2
-    opacity_penalty: float = 2e-5   # per ellipse, on sigmoid(opacity)
+    ssim_weight: float = 0.18
+    opacity_penalty: float = 1.8    # per unit opacity, in multiples of lam
+    # Adam learning rates. Positions are in fractions of the longest side.
+    lr_mu: float = 0.003
+    lr_scale: float = 0.009         # on log semi-axes
+    lr_theta: float = 0.005
+    lr_col: float = 0.04            # on colour logits
+    lr_op: float = 0.034            # on opacity logits
+    lr_bg: float = 0.01
+    mu_lr_decay: float = 0.01       # final position learning rate, relative
     # Density control.
     init_shapes: int = 8
-    densify_every: int = 100
+    densify_every: int = 200
     densify_from: int = 100
-    densify_until: float = 0.75     # fraction of iters
-    grad_threshold: float = 2e-5
-    size_threshold: float = 6.0     # pixels; larger shapes split, smaller clone
-    max_growth: float = 0.1         # fraction of N added by clone/split per step
-    max_prune: float = 0.1          # fraction of N removed per step
+    densify_until: float = 0.84     # fraction of iters
+    grad_ratio: float = 9.3         # clone/split above this times the median positional gradient
+    size_threshold: float = 0.015   # fraction of longest side; larger shapes split, smaller clone
+    clone_nudge: float = 0.5        # clone offset, in minor semi-axes
+    split_offset: float = 0.45      # children's offset, in major semi-axes
+    split_major: float = 0.55       # children's major axis, relative
+    split_minor: float = 0.85       # children's minor axis, relative
+    max_growth: float = 0.19        # fraction of N added by clone/split per step
+    max_prune: float = 0.19         # fraction of N removed per step
     min_opacity: float = 0.01
-    spawn_k: int = 8
-    relocate_k: int = 0             # relocations per step; no measured gain, so off
+    spawn_k: int = 14
+    spawn_max: float = 0.15         # largest spawn box half-width, fraction of longest side
+    spawn_opacity: float = 0.54
+    glaze_k: int = 0                # translucent layers per step (fitted opacity); 0 disables
+    glaze_max: float = 0.5          # largest glaze box half-width, fraction of longest side
+    glaze_min_opacity: float = 0.05
+    relocate_k: int = 4             # relocations per step; 0 disables
     relocate_margin: float = 1.0    # site saving must exceed this times the shape's value
-    reorder_moves: int = 0          # moves per step; no measured gain, so off
-    spawn_half_widths: list[int] = field(default_factory=lambda: [1, 2, 4, 8, 16, 32])
+    reorder_moves: int = 3          # moves per step; 0 disables
     # Logging.
     log_every: int = 100
-    snapshot_every: int = 250
+    snapshot_every: int = 250       # 0 disables
+    quiet: bool = False
 
 
 def pick_device(name: str) -> torch.device:
@@ -89,6 +108,14 @@ def empty_params(device) -> dict[str, torch.Tensor]:
     return {k: torch.zeros(shapes[k], device=device) for k in FIELDS}
 
 
+def spawn_half_widths(largest: float) -> list[int]:
+    """Powers of two from 1 up to `largest` pixels."""
+    out = [1]
+    while out[-1] * 2 <= largest:
+        out.append(out[-1] * 2)
+    return out
+
+
 def fitness(m: float, n: int, lam: float) -> float:
     return m + lam * n
 
@@ -100,23 +127,29 @@ def train(cfg: Config) -> dict:
     _, h, w = target.shape
     out = Path(cfg.out)
     (out / "frames").mkdir(parents=True, exist_ok=True)
+    say = (lambda *a: None) if cfg.quiet else print
+    size = max(h, w)
     min_gain = cfg.lam * 3 * h * w  # lam in summed-squared-error units
+    half_widths = spawn_half_widths(cfg.spawn_max * size)
+    glaze_widths = [x for x in spawn_half_widths(cfg.glaze_max * size) if x > half_widths[-1]]
+    split = dict(nudge=cfg.clone_nudge, offset=cfg.split_offset, major=cfg.split_major, minor=cfg.split_minor)
 
-    model = Model(empty_params(dev), inv_sigmoid(target.mean(dim=(1, 2))))
+    lr = {"mu": cfg.lr_mu * size, "log_s": cfg.lr_scale, "theta": cfg.lr_theta,
+          "col": cfg.lr_col, "op": cfg.lr_op, "bg": cfg.lr_bg}
+    model = Model(empty_params(dev), inv_sigmoid(target.mean(dim=(1, 2))), lr)
     density.spawn(model, render(model.p, model.bg, h, w, cfg.tau_start).detach(), target,
-                  cfg.spawn_half_widths, cfg.init_shapes, min_gain)
+                  half_widths, cfg.init_shapes, min_gain, cfg.spawn_opacity)
     log = []
-    lr_mu = model.lr["mu"]
     start = time.time()
-    print(f"# {cfg.image} {w}x{h} on {dev}, lam={cfg.lam}")
+    say(f"# {cfg.image} {w}x{h} on {dev}, lam={cfg.lam}")
 
     for it in range(cfg.iters + 1):
         tau = tau_at(cfg, it)
         ramp = it >= cfg.ramp_from * cfg.iters
-        model.set_lr("mu", lr_mu * 0.01 ** (it / cfg.iters))
+        model.set_lr("mu", lr["mu"] * cfg.mu_lr_decay ** (it / cfg.iters))
         img = render(model.p, model.bg, h, w, tau, ramp)
         loss = photometric(img, target, cfg.ssim_weight)
-        loss = loss + cfg.opacity_penalty * torch.sigmoid(model.p["op"]).sum()
+        loss = loss + cfg.opacity_penalty * cfg.lam * torch.sigmoid(model.p["op"]).sum()
         model.opt.zero_grad(set_to_none=True)
         loss.backward()
         model.accumulate()
@@ -131,18 +164,25 @@ def train(cfg: Config) -> dict:
                                    math.ceil(cfg.max_prune * n))
             with torch.no_grad():
                 cur = render(model.p, model.bg, h, w, tau)
-            relocated = density.relocate(model, cur, target, tau, cfg.spawn_half_widths,
-                                         cfg.relocate_k, cfg.relocate_margin)
+            relocated = density.relocate(model, cur, target, tau, half_widths,
+                                         cfg.relocate_k, cfg.relocate_margin, cfg.spawn_opacity)
             moved = density.reorder(model, target, tau, cfg.reorder_moves, 0.1 * cfg.lam)
             g = model.mean_grad()
             gq = torch.quantile(g, torch.tensor([0.5, 0.9], device=dev)).tolist() if model.n > 1 else [0, 0]
-            clones, splits = density.clone_split(model, cfg.grad_threshold, cfg.size_threshold,
-                                                 math.ceil(cfg.max_growth * model.n) + 1)
+            threshold = cfg.grad_ratio * gq[0]
+            clones, splits = density.clone_split(model, threshold, cfg.size_threshold * size,
+                                                 math.ceil(cfg.max_growth * model.n) + 1, **split)
             with torch.no_grad():
                 cur = render(model.p, model.bg, h, w, tau)
-            spawned = density.spawn(model, cur, target, cfg.spawn_half_widths, cfg.spawn_k, min_gain)
+            spawned = density.spawn(model, cur, target, half_widths, cfg.spawn_k, min_gain, cfg.spawn_opacity)
+            glazed = 0
+            if cfg.glaze_k and glaze_widths:
+                with torch.no_grad():
+                    cur = render(model.p, model.bg, h, w, tau)
+                glazed = density.glaze(model, cur, target, glaze_widths, cfg.glaze_k, min_gain,
+                                       cfg.glaze_min_opacity)
             model.reset_stats()
-            event = (f" -{pruned} clone+{clones} split+{splits} spawn+{spawned}"
+            event = (f" -{pruned} clone+{clones} split+{splits} spawn+{spawned} glaze+{glazed}"
                      f" reloc={relocated} moved={moved}"
                      f" grad p50={gq[0]:.1e} p90={gq[1]:.1e}")
 
@@ -151,9 +191,9 @@ def train(cfg: Config) -> dict:
             row = {"it": it, "n": model.n, "mse": m, "fitness": fitness(m, model.n, cfg.lam),
                    "tau": tau, "ramp": ramp, "t": time.time() - start, "event": event.strip()}
             log.append(row)
-            print(f"{it:5d} n={model.n:4d} mse={m:.5f} fit={row['fitness']:.5f} tau={tau:.2f}"
+            say(f"{it:5d} n={model.n:4d} mse={m:.5f} fit={row['fitness']:.5f} tau={tau:.2f}"
                   f"{' ramp' if ramp else ''} {row['t']:.0f}s{event}")
-        if it % cfg.snapshot_every == 0:
+        if cfg.snapshot_every and it % cfg.snapshot_every == 0:
             (out / "frames" / f"{it:06d}.svg").write_text(to_svg(model.p, model.bg, w, h))
 
     # Final: hard-edged evaluation and exact greedy pruning against the fitness.
@@ -170,7 +210,7 @@ def train(cfg: Config) -> dict:
               "before_prune": {"n": before_n, "mse": before_mse,
                                "fitness": fitness(before_mse, before_n, cfg.lam)},
               "seconds": time.time() - start}
-    print(f"# hard: n={before_n} mse={before_mse:.5f} -> greedy prune n={model.n} "
+    say(f"# hard: n={before_n} mse={before_mse:.5f} -> greedy prune n={model.n} "
           f"mse={m:.5f} fitness={result['fitness']:.5f}")
 
     (out / "best.svg").write_text(to_svg(p, model.bg, w, h))
@@ -191,9 +231,7 @@ def main(argv: list[str] | None = None):
         if name == "image":
             continue
         flag = "--" + name.replace("_", "-")
-        if isinstance(value, list):
-            ap.add_argument(flag, type=int, nargs="+", default=value)
-        elif isinstance(value, bool):
+        if isinstance(value, bool):
             ap.add_argument(flag, action=argparse.BooleanOptionalAction, default=value)
         elif value is None:
             ap.add_argument(flag, type=int, default=None)

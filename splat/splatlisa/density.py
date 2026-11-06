@@ -30,6 +30,10 @@ def clone_split(
     grad_threshold: float,
     size_threshold: float,
     max_new: int,
+    nudge: float = 0.5,
+    offset: float = 0.45,
+    major: float = 0.55,
+    minor: float = 0.85,
 ) -> tuple[int, int]:
     """Replace each high-gradient shape with two: a clone if it is small,
     two halves along its major axis if it is large. Returns (clones, splits)."""
@@ -58,7 +62,7 @@ def clone_split(
         rows["op"][2 * sel] = inv_sigmoid(a_half)
         rows["op"][2 * sel + 1] = inv_sigmoid(a_half)
         direction = -F.normalize(model.grad_vec[idx[small]], dim=1, eps=1e-12)
-        step = 0.5 * scale[small].min(dim=1).values[:, None]
+        step = nudge * scale[small].min(dim=1).values[:, None]
         rows["mu"][2 * sel + 1] += direction * step
 
     # Splits: two ellipses along the major axis, each spanning half of it.
@@ -69,14 +73,13 @@ def clone_split(
         major_is_x = s[:, 0] >= s[:, 1]
         axis_angle = torch.where(major_is_x, th, th + math.pi / 2)
         axis = torch.stack([torch.cos(axis_angle), torch.sin(axis_angle)], dim=1)
-        major = s.max(dim=1).values[:, None]
-        offset = axis * major * 0.45
-        rows["mu"][2 * sel] -= offset
-        rows["mu"][2 * sel + 1] += offset
+        shift = axis * s.max(dim=1).values[:, None] * offset
+        rows["mu"][2 * sel] -= shift
+        rows["mu"][2 * sel + 1] += shift
         shrink = torch.where(
             major_is_x[:, None],
-            torch.tensor([0.55, 0.85], device=s.device),
-            torch.tensor([0.85, 0.55], device=s.device),
+            torch.tensor([major, minor], device=s.device),
+            torch.tensor([minor, major], device=s.device),
         )
         child = torch.log(s * shrink)
         rows["log_s"][2 * sel] = child
@@ -144,6 +147,84 @@ def spawn_candidates(
         near = (xs - x) ** 2 + (ys - y) ** 2 <= radius**2
         gain[:, near] = -float("inf")
     return out
+
+
+def glaze_candidates(
+    img: Tensor,
+    target: Tensor,
+    half_widths: list[int],
+    k: int,
+    min_gain: float,
+    min_opacity: float = 0.05,
+) -> list[tuple[float, float, float, Tensor, float, float]]:
+    """Sites for translucent layers: per box, the least-squares opacity `a`
+    and colour `c` of a layer composited over the current image.
+
+    With r = target - img and C = img over a box of n pixels, the layer
+    leaves r - u + a·C (u = a·c), and the saving in summed squared error is
+        n·|mean r|² - 2a·S_rC - a²·S_CC
+    (S: centred sums, over channels). a = 1 recovers the opaque rule of
+    `spawn_candidates`; where the image already has the right structure
+    (S_rC ≈ 0), the optimum is a faint wash that corrects only the bias.
+    `a` is bounded below by `min_opacity` and by keeping `c` within [0, 1].
+    Returns up to `k` non-overlapping (x, y, radius, colour, saving, opacity),
+    best first, whose saving exceeds `min_gain`.
+    """
+    _, h, w = target.shape
+    r = target - img
+    gains, colours, opacities = [], [], []
+    for hw in half_widths:
+        box = lambda x: F.avg_pool2d(
+            x[None], 2 * hw + 1, stride=1, padding=hw, count_include_pad=False
+        )[0]
+        n = (2 * hw + 1) ** 2
+        m_r, m_c = box(r), box(img)
+        s_rc = n * (box(r * img) - m_r * m_c).sum(0)
+        s_cc = n * (box(img * img) - m_c**2).sum(0).clamp(min=0)
+        # c = m_c + m_r / a must lie in [0, 1].
+        room = torch.where(m_r > 0, 1 - m_c, m_c).clamp(min=1e-6)
+        a_lo = (m_r.abs() / room).amax(0).clamp(min=min_opacity, max=1)
+        a = torch.where(s_cc > 1e-12, -s_rc / s_cc.clamp(min=1e-12), a_lo)
+        a = torch.maximum(a, a_lo).clamp(max=1)
+        gains.append(n * (m_r**2).sum(0) - 2 * a * s_rc - a**2 * s_cc)
+        colours.append((m_c + m_r / a).clamp(0.02, 0.98))
+        opacities.append(a)
+    gain = torch.stack(gains)  # (S, H, W)
+    ys = torch.arange(h, device=img.device, dtype=torch.float32)[:, None]
+    xs = torch.arange(w, device=img.device, dtype=torch.float32)[None, :]
+
+    out = []
+    for _ in range(k):
+        flat = int(torch.argmax(gain))
+        best = float(gain.flatten()[flat])
+        if best <= min_gain:
+            break
+        si, rem = divmod(flat, h * w)
+        y, x = divmod(rem, w)
+        radius = (2 * half_widths[si] + 1) / 2 * DISC_PER_BOX
+        out.append((x + 0.5, y + 0.5, radius, colours[si][:, y, x], best, float(opacities[si][y, x])))
+        near = (xs - x) ** 2 + (ys - y) ** 2 <= radius**2
+        gain[:, near] = -float("inf")
+    return out
+
+
+def glaze(
+    model: Model,
+    img: Tensor,
+    target: Tensor,
+    half_widths: list[int],
+    k: int,
+    min_gain: float,
+    min_opacity: float = 0.05,
+) -> int:
+    """Append translucent layers on top of the stack at the best glaze sites."""
+    cands = glaze_candidates(img, target, half_widths, k, min_gain, min_opacity)
+    if not cands:
+        return 0
+    rows = candidate_rows(cands, 0.5, model.device)
+    rows["op"] = inv_sigmoid(torch.tensor([c[5] for c in cands], device=model.device).clamp(1e-3, 1 - 1e-3))
+    model.restructure(torch.arange(model.n + len(cands)), rows)
+    return len(cands)
 
 
 def spawn(

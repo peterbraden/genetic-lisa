@@ -200,3 +200,48 @@ def test_reorder_moves_occluding_shape_beneath():
     assert torch.sigmoid(m.p["col"][-1, 0]) > 0.8
     # Already optimal: no further moves.
     assert density.reorder(m, target, 0.5, max_moves=3, min_gain=1e-7) == 0
+
+
+def textured(h=40, w=40, seed=0):
+    g = torch.Generator().manual_seed(seed)
+    return 0.2 + 0.6 * torch.rand(3, h, w, generator=g)
+
+
+def test_glaze_recovers_translucent_layer_over_texture():
+    # Target: the current image under a 20% red wash in one region. The
+    # opaque rule would erase the texture; the glaze fits the wash exactly.
+    img = textured()
+    red = torch.tensor([0.9, 0.1, 0.1])[:, None, None]
+    target = img.clone()
+    target[:, 8:32, 8:32] = 0.8 * img[:, 8:32, 8:32] + 0.2 * red
+    x, y, r, c, gain, a = density.glaze_candidates(img, target, [8], k=1, min_gain=0)[0]
+    assert 8 <= x <= 32 and 8 <= y <= 32
+    assert abs(a - 0.2) < 0.02
+    assert torch.allclose(c, red.flatten(), atol=0.05)
+    i, j = int(y), int(x)
+    box_error = float(((target - img)[:, i - 8:i + 9, j - 8:j + 9] ** 2).sum())
+    assert abs(gain - box_error) < 1e-3 * box_error
+    opaque = density.spawn_candidates(img, target, [8], k=1, min_gain=0)
+    assert not opaque or opaque[0][4] < 0.5 * gain
+
+
+def test_glaze_on_flat_image_keeps_colour_in_range():
+    # No structure beneath, so opacity is set by feasibility: a lighter grey
+    # wash over grey needs a >= 0.1 / 0.5.
+    img = torch.full((3, 40, 40), 0.5)
+    target = img.clone()
+    target[:, 10:30, 10:30] = 0.6
+    _, _, _, c, _, a = density.glaze_candidates(img, target, [4], k=1, min_gain=0)[0]
+    assert a >= 0.2 - 1e-4
+    assert ((c >= 0) & (c <= 1)).all()
+    assert torch.allclose(a * c + (1 - a) * 0.5, torch.full((3,), 0.6), atol=0.01)
+    assert density.glaze_candidates(target, target, [4], k=1, min_gain=0) == []
+
+
+def test_glaze_appends_rows_with_fitted_opacity():
+    img = textured()
+    target = 0.7 * img + 0.3 * torch.tensor([0.1, 0.1, 0.9])[:, None, None]
+    model = model_of(two_shapes())
+    added = density.glaze(model, img, target, [8, 16], k=2, min_gain=0)
+    assert added >= 1 and model.n == 2 + added
+    assert abs(float(torch.sigmoid(model.p["op"][2].detach())) - 0.3) < 0.03

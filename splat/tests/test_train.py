@@ -31,3 +31,20 @@ def test_training_improves_on_flat_background_and_writes_consistent_svg(tmp_path
     assert abs(s["mse"] - result["mse"]) < 0.1 * result["mse"] + 1e-4
     run = json.loads((tmp_path / "out" / "run.json").read_text())
     assert run["result"]["fitness"] <= run["result"]["before_prune"]["fitness"]
+
+
+def test_glaze_layers_are_added_during_training(tmp_path):
+    # A textured image under a broad tint: a case for translucent layers.
+    rng = np.random.default_rng(0)
+    h, w = 32, 40
+    img = 0.3 + 0.4 * rng.random((h, w, 3)).astype(np.float32)
+    img[:, : w // 2] = 0.6 * img[:, : w // 2] + 0.4 * np.array([0.9, 0.8, 0.1], dtype=np.float32)
+    src = tmp_path / "src.png"
+    Image.fromarray((img * 255).astype(np.uint8)).save(src)
+    cfg = Config(image=str(src), out=str(tmp_path / "out"), iters=200, lam=1e-5, device="cpu",
+                 densify_from=50, densify_every=50, log_every=1000, snapshot_every=0, glaze_k=2)
+    result = train(cfg)
+    events = [r["event"] for r in json.loads((tmp_path / "out" / "run.json").read_text())["log"]]
+    assert any("glaze+" in e and "glaze+0" not in e for e in events)
+    s = score(str(tmp_path / "out" / "best.svg"), str(src), 1e-5, background="#000000")
+    assert abs(s["mse"] - result["mse"]) < 0.1 * result["mse"] + 1e-4

@@ -12,6 +12,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "optuna>=5.0.0",
     "pytest>=8",
 ]
 

@@ -8,3 +8,5 @@ weighting.png
 __pycache__
 .pytest_cache
 splat/out
+splat/corpus/
+splat/tuning/
