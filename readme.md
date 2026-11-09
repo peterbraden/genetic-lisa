@@ -155,8 +155,8 @@ the draw functions to use Bresenheim's algorithm.
 
 ## 2026
 
-The current implementation, in [`splat/`](./splat/README.md), abandons random
-mutation for directed optimisation, borrowing from 3D Gaussian Splatting. The
+Inspired by some of the Gaussian Splatting algorithm, I picked the project back
+up and abandoned random mutation for directed optimisation. The
 image is still a stack of translucent ellipses, but every parameter of every
 ellipse is adjusted on every step by gradient descent through a differentiable
 renderer. Shapes are added and removed by rule rather than by chance:
@@ -177,8 +177,8 @@ faster after the first few seconds; at a low `λ` it reaches half the error in
 minutes, with fewer shapes than the evolutionary result reached in 40 minutes.
 Current work concerns long runs at full resolution (1090 ellipses on a
 960x1431 Mona Lisa), where most of the remaining error is craquelure and
-grain that ellipses cannot represent. Design notes and results are in
-[`plan.md`](./plan.md).
+grain that ellipses cannot represent.
+
 
 #### Gallery
 
