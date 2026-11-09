@@ -26,7 +26,7 @@ import torch
 from splatlisa import density
 from splatlisa.loss import photometric
 from splatlisa.model import Model
-from splatlisa.render import FIELDS, hard_alphas, inv_sigmoid, make_params, mse, render, render_hard
+from splatlisa.render import FIELDS, hard_pairs, inv_sigmoid, make_params, mse, render, render_hard
 from splatlisa.train import Config, load_image
 
 ELLIPSE = re.compile(r'<ellipse cx="([-\d.]+)" cy="([-\d.]+)" rx="([\d.]+)" ry="([\d.]+)" '
@@ -55,7 +55,7 @@ def load_svg(path: str) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
 def finish(model: Model, target: torch.Tensor, lam: float) -> tuple[int, float]:
     _, h, w = target.shape
     p = model.detached()
-    keep = density.greedy_prune(hard_alphas(p, h, w), torch.sigmoid(p["col"]),
+    keep = density.greedy_prune(hard_pairs(p, h, w), torch.sigmoid(p["col"]),
                                 torch.sigmoid(model.bg.detach()), target, lam)
     model.restructure(keep)
     m = float(mse(render_hard(model.detached(), model.bg, h, w), target))

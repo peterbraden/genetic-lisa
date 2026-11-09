@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import torch
 from torch import Tensor
 
@@ -74,6 +76,20 @@ class Model:
             group["params"][0] = new
             self.p[name] = new
         self.grad_norm, self.grad_vec = stats_norm, stats_vec
+
+    @torch.no_grad()
+    def rescale(self, f: float):
+        """Scale the image plane by `f`: centres and semi-axes, and the position
+        moments so that Adam's steps scale with it (the position gradient
+        scales by 1/f; the caller multiplies the position learning rate by f).
+        Gradient statistics are reset."""
+        self.p["mu"].mul_(f)
+        self.p["log_s"].add_(math.log(f))
+        state = self.opt.state.get(self.p["mu"])
+        if state:
+            state["exp_avg"].div_(f)
+            state["exp_avg_sq"].div_(f * f)
+        self.reset_stats()
 
     def set_lr(self, name: str, lr: float):
         for group in self.opt.param_groups:

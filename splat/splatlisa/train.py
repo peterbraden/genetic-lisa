@@ -19,7 +19,7 @@ from PIL import Image
 from . import density
 from .loss import photometric
 from .model import Model
-from .render import FIELDS, hard_alphas, inv_sigmoid, mse, natural, render, render_hard
+from .render import FIELDS, composite_pairs, hard_pairs, inv_sigmoid, mse, natural, reindex, render
 from .svg import to_svg
 
 
@@ -30,6 +30,13 @@ class Config:
     iters: int = 2500
     lam: float = 1e-5               # MSE an ellipse must save to be kept
     max_size: int | None = None     # downscale the source so its longest side is this
+    # Progressive resolution: start at the coarsest halving of the image whose
+    # longest side is at least min_size (0 disables), and expand one level at a
+    # density step once fitness improves by less than expand_tol (relative)
+    # over an interval; from expand_by of the run, expansion is forced.
+    min_size: int = 0
+    expand_tol: float = 0.01
+    expand_by: float = 0.5
     device: str = "cpu"             # with culling, MPS offers no gain at this scale
     seed: int = 0
     # Defaults from an Optuna search over the corpus tuning split (scripts/tune.py,
@@ -120,18 +127,40 @@ def fitness(m: float, n: int, lam: float) -> float:
     return m + lam * n
 
 
+def pyramid(cfg: Config, dev) -> list[torch.Tensor]:
+    """Targets from coarsest to full size, halving the longest side."""
+    full = load_image(cfg.image, cfg.max_size).to(dev)
+    sizes, size = [], max(full.shape[1:])
+    while cfg.min_size and round(size / 2) >= cfg.min_size:
+        size = round(size / 2)
+        sizes.append(size)
+    return [load_image(cfg.image, s).to(dev) for s in reversed(sizes)] + [full]
+
+
+def in_frame(p: dict[str, torch.Tensor], f: float) -> dict[str, torch.Tensor]:
+    """Parameters with the image plane scaled by `f`."""
+    return {**p, "mu": p["mu"] * f, "log_s": p["log_s"] + math.log(f)}
+
+
 def train(cfg: Config) -> dict:
     torch.manual_seed(cfg.seed)
     dev = pick_device(cfg.device)
-    target = load_image(cfg.image, cfg.max_size).to(dev)
-    _, h, w = target.shape
+    levels = pyramid(cfg, dev)
+    level = 0
+    full_w, full_h = levels[-1].shape[2], levels[-1].shape[1]
+
+    def at_level(target):
+        _, h, w = target.shape
+        size = max(h, w)
+        min_gain = cfg.lam * 3 * h * w  # lam in summed-squared-error units
+        half_widths = spawn_half_widths(cfg.spawn_max * size)
+        glaze_widths = [x for x in spawn_half_widths(cfg.glaze_max * size) if x > half_widths[-1]]
+        return target, h, w, size, min_gain, half_widths, glaze_widths
+
+    target, h, w, size, min_gain, half_widths, glaze_widths = at_level(levels[0])
     out = Path(cfg.out)
     (out / "frames").mkdir(parents=True, exist_ok=True)
     say = (lambda *a: None) if cfg.quiet else print
-    size = max(h, w)
-    min_gain = cfg.lam * 3 * h * w  # lam in summed-squared-error units
-    half_widths = spawn_half_widths(cfg.spawn_max * size)
-    glaze_widths = [x for x in spawn_half_widths(cfg.glaze_max * size) if x > half_widths[-1]]
     split = dict(nudge=cfg.clone_nudge, offset=cfg.split_offset, major=cfg.split_major, minor=cfg.split_minor)
 
     lr = {"mu": cfg.lr_mu * size, "log_s": cfg.lr_scale, "theta": cfg.lr_theta,
@@ -140,7 +169,16 @@ def train(cfg: Config) -> dict:
     density.spawn(model, render(model.p, model.bg, h, w, cfg.tau_start).detach(), target,
                   half_widths, cfg.init_shapes, min_gain, cfg.spawn_opacity)
     log = []
-    start = time.time()
+    prev_fit = None
+    start = time.perf_counter()
+
+    def expand():
+        nonlocal level, target, h, w, size, min_gain, half_widths, glaze_widths
+        old = size
+        level += 1
+        target, h, w, size, min_gain, half_widths, glaze_widths = at_level(levels[level])
+        model.rescale(size / old)
+        lr["mu"] = cfg.lr_mu * size
     say(f"# {cfg.image} {w}x{h} on {dev}, lam={cfg.lam}")
 
     for it in range(cfg.iters + 1):
@@ -158,7 +196,17 @@ def train(cfg: Config) -> dict:
             model.p["log_s"].clamp_(math.log(0.3), math.log(2 * max(h, w)))
 
         event = ""
-        if (cfg.densify_from <= it < cfg.densify_until * cfg.iters and it % cfg.densify_every == 0):
+        trained_on = target
+        densify = cfg.densify_from <= it < cfg.densify_until * cfg.iters and it % cfg.densify_every == 0
+        if densify and level < len(levels) - 1:
+            fit = fitness(float(mse(img.detach(), target)), model.n, cfg.lam)
+            stalled = prev_fit is not None and prev_fit - fit < cfg.expand_tol * prev_fit
+            prev_fit = fit
+            if stalled or it >= cfg.expand_by * cfg.iters:
+                expand()
+                prev_fit, densify = None, False
+                event = f" expand to {w}x{h}"
+        if densify:
             n = model.n
             pruned = density.prune(model, target, tau, cfg.lam, cfg.min_opacity,
                                    math.ceil(cfg.max_prune * n))
@@ -182,34 +230,37 @@ def train(cfg: Config) -> dict:
                 glazed = density.glaze(model, cur, target, glaze_widths, cfg.glaze_k, min_gain,
                                        cfg.glaze_min_opacity)
             model.reset_stats()
-            event = (f" -{pruned} clone+{clones} split+{splits} spawn+{spawned} glaze+{glazed}"
+            event += (f" -{pruned} clone+{clones} split+{splits} spawn+{spawned} glaze+{glazed}"
                      f" reloc={relocated} moved={moved}"
                      f" grad p50={gq[0]:.1e} p90={gq[1]:.1e}")
 
         if it % cfg.log_every == 0 or event:
-            m = float(mse(img.detach(), target))
-            row = {"it": it, "n": model.n, "mse": m, "fitness": fitness(m, model.n, cfg.lam),
-                   "tau": tau, "ramp": ramp, "t": time.time() - start, "event": event.strip()}
+            m = float(mse(img.detach(), trained_on))
+            row = {"it": it, "n": model.n, "mse": m, "fitness": fitness(m, model.n, cfg.lam), "size": [w, h],
+                   "tau": tau, "ramp": ramp, "t": time.perf_counter() - start, "event": event.strip()}
             log.append(row)
             say(f"{it:5d} n={model.n:4d} mse={m:.5f} fit={row['fitness']:.5f} tau={tau:.2f}"
                   f"{' ramp' if ramp else ''} {row['t']:.0f}s{event}")
         if cfg.snapshot_every and it % cfg.snapshot_every == 0:
-            (out / "frames" / f"{it:06d}.svg").write_text(to_svg(model.p, model.bg, w, h))
+            frame = in_frame(model.detached(), max(full_w, full_h) / size)
+            (out / "frames" / f"{it:06d}.svg").write_text(to_svg(frame, model.bg, full_w, full_h))
 
+    while level < len(levels) - 1:
+        expand()
     # Final: hard-edged evaluation and exact greedy pruning against the fitness.
     p = model.detached()
-    a = hard_alphas(p, h, w)
+    pairs = hard_pairs(p, h, w)
     colour, bg = torch.sigmoid(p["col"]), torch.sigmoid(model.bg.detach())
-    before_n, before_mse = model.n, float(mse(render_hard(p, model.bg, h, w), target))
-    keep = density.greedy_prune(a, colour, bg, target, cfg.lam)
+    before_n, before_mse = model.n, float(mse(composite_pairs(pairs, colour, bg), target))
+    keep = density.greedy_prune(pairs, colour, bg, target, cfg.lam)
     model.restructure(keep)
     p = model.detached()
-    final = render_hard(p, model.bg, h, w)
+    final = composite_pairs(reindex(pairs, keep), colour[keep], bg)
     m = float(mse(final, target))
     result = {"n": model.n, "mse": m, "fitness": fitness(m, model.n, cfg.lam),
               "before_prune": {"n": before_n, "mse": before_mse,
                                "fitness": fitness(before_mse, before_n, cfg.lam)},
-              "seconds": time.time() - start}
+              "seconds": time.perf_counter() - start}
     say(f"# hard: n={before_n} mse={before_mse:.5f} -> greedy prune n={model.n} "
           f"mse={m:.5f} fitness={result['fitness']:.5f}")
 

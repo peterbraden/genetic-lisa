@@ -4,7 +4,7 @@ import torch
 
 from splatlisa import density
 from splatlisa.model import Model
-from splatlisa.render import alphas, composite, inv_sigmoid, make_params, pixel_grid, render, render_hard
+from splatlisa.render import alphas, composite, hard_pairs, inv_sigmoid, make_params, pixel_grid, render, render_hard
 
 
 def model_of(params, bg=(0.5, 0.5, 0.5)):
@@ -129,7 +129,7 @@ def test_greedy_prune_removes_redundant_duplicate_but_not_both():
     a = alphas(p, pixel_grid(20, 20), None)
     colour, bg = torch.sigmoid(p["col"]), torch.full((3,), 0.5)
     target = composite(a, colour, bg)
-    keep = density.greedy_prune(a, colour, bg, target, lam=1e-5)
+    keep = density.greedy_prune(hard_pairs(p, 20, 20, ss=1), colour, bg, target, lam=1e-5)
     assert keep.numel() == 1
 
 
@@ -141,8 +141,9 @@ def test_greedy_prune_trades_error_for_count():
     target = composite(a, colour, bg)
     from splatlisa.render import removal_cost
     saving = removal_cost(a, colour, bg, target).item()
-    assert density.greedy_prune(a, colour, bg, target, lam=saving / 2).numel() == 1
-    assert density.greedy_prune(a, colour, bg, target, lam=saving * 2).numel() == 0
+    pairs = hard_pairs(p, 20, 20, ss=1)
+    assert density.greedy_prune(pairs, colour, bg, target, lam=saving / 2).numel() == 1
+    assert density.greedy_prune(pairs, colour, bg, target, lam=saving * 2).numel() == 0
 
 
 def test_prune_removes_near_transparent_shapes():
@@ -245,3 +246,39 @@ def test_glaze_appends_rows_with_fitted_opacity():
     added = density.glaze(model, img, target, [8, 16], k=2, min_gain=0)
     assert added >= 1 and model.n == 2 + added
     assert abs(float(torch.sigmoid(model.p["op"][2].detach())) - 0.3) < 0.03
+
+
+def test_rescale_preserves_hard_coverage_exactly():
+    # 4x4 samples at (h, w) coincide with 2x2 samples at (2h, 2w).
+    from splatlisa.render import hard_alphas
+    model = model_of(two_shapes())
+    before = hard_alphas(model.detached(), 20, 24, ss=4)
+    model.rescale(2.0)
+    after = hard_alphas(model.detached(), 40, 48, ss=2)
+    pooled = torch.nn.functional.avg_pool2d(after[:, None], 2)[:, 0]
+    assert torch.allclose(pooled, before, atol=1e-6)
+
+
+def test_rescale_makes_adam_steps_scale_with_the_image():
+    import copy
+    c = torch.tensor([[3.0, 4.0], [11.0, 9.0]])
+
+    def step(model, f):
+        mu, log_s = model.p["mu"] / f, model.p["log_s"] - math.log(f)
+        loss = ((mu - c) ** 2 * torch.tensor([1.0, 3.0])).sum() + (log_s**2).sum()
+        model.opt.zero_grad()
+        loss.backward()
+        model.opt.step()
+
+    a = model_of(two_shapes())
+    for _ in range(3):
+        step(a, 1.0)
+    b = copy.deepcopy(a)
+    f = 2.5
+    b.rescale(f)
+    b.set_lr("mu", a.lr["mu"] * f)
+    step(a, 1.0)
+    step(b, f)
+    assert torch.allclose(b.p["mu"], f * a.p["mu"], atol=1e-4)
+    assert torch.allclose(b.p["log_s"], a.p["log_s"] + math.log(f), atol=1e-5)
+    assert b.grad_count == 0

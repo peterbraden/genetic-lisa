@@ -153,6 +153,133 @@ Not known:
 - Whether layering pays at very low λ once the step budget no longer limits
   the count (densification window and growth rate would need raising).
 
+## Fourth iteration: progressive resolution and animation
+
+Goal (from the user): train coarse to fine, expanding the working
+resolution in several steps as an adaptive rule; and animate the snapshots.
+
+Known:
+- Step cost scales with pixels × overlap: the 960x1431 Mona Lisa takes
+  ~2.4 s a step against ~0.06 s for 200x311.
+- λ is defined on mean squared error, so its meaning does not change with
+  resolution; spawn thresholds (λ·3·h·w) and position learning rates
+  (fractions of the longest side) are already scale-free.
+- Ellipse parameters scale exactly: centres and semi-axes by f. With 4x4
+  supersampling at the coarse level and 2x2 at twice the size, the sample
+  points coincide, so the hard render is preserved exactly.
+- Adam is invariant to the rescaling if the position moments are divided
+  by f (first) and f² (second) and the position learning rate multiplied by
+  f.
+
+Design:
+- A pyramid of targets, halving from the full size down to `min_size`
+  (off by default).
+- At a density step below full size, expand one level when the fitness
+  improved by less than `expand_tol` (relative) since the previous density
+  step: the error the current resolution can address is exhausted, and what
+  remains is detail it cannot represent. Expansion is forced, one level per
+  density step, from `expand_by` of the run, so that full-size
+  densification follows.
+- On expansion: rescale parameters and optimiser state, reset gradient
+  statistics, skip the rest of that density step.
+- Snapshots are written in full-size coordinates, so frames from every
+  level compose one animation.
+
+Assumptions:
+- Relative fitness plateau is an adequate proxy for "error is
+  homogeneous" at the current level. An alternative is the best spawn gain
+  falling below λ.
+- Edge softness, in pixels, becomes relatively sharper as resolution rises;
+  this suits coarse-to-fine and is left as is.
+
+Status: implemented (`--min-size`, `Model.rescale`), with tests that the
+rescaled hard coverage is exact and that Adam steps scale with the image.
+Not yet measured.
+
+## Error against time
+
+Goal (from the user): compare all approaches by error against processing
+time, with the evolutionary version as the baseline; both the initial slope
+and the plateau matter.
+
+Known:
+- The Rust implementation builds with crate versions pinned to its era
+  (Cargo.lock, not committed: image 0.18, rand 0.3, jpeg-decoder 0.1,
+  backtrace 0.3.69). It is single-threaded, has no shape penalty, and its
+  fitness is the summed squared 0-255 difference, so MSE = F / (255²·3·w·h).
+- `scripts/run_genetic.py` records its log and snapshots; `scripts/curves.py`
+  scores every snapshot of every run with resvg and plots MSE and shape
+  count against time on log axes.
+
+- The machine sleeps when idle, and wall-clock time includes the sleep: the
+  first set of curves (and the 2-hour large Mona Lisa run) contained stalls
+  of up to 8 minutes, identical across concurrent processes. Training now
+  times with `time.perf_counter` (which excludes sleep on macOS), and timing
+  runs are made under `caffeinate -i`.
+
+Assumptions:
+- Wall-clock time on one machine is the fair measure; the splat runs use 4
+  threads, and one single-threaded run is included for comparison.
+- Two hours suffice to show the evolutionary plateau. Unknown: the original
+  36m.svg may have taken far longer.
+
+Results (Mona Lisa 200x311, resvg MSE; genetic times corrected for sleep):
+- Up to ~5 s the splat runs and the evolutionary search descend alike;
+  thereafter the splat runs are faster: at 100 s ~0.0025 against ~0.0033.
+- Progressive resolution (from 78 px) has much the steepest start: MSE 0.004
+  at ~5 s, when the others are near 0.015; it ends at 0.0026 with 84 shapes
+  in 83 s, slightly above the defaults (0.0025, 84 shapes, 145 s).
+- λ = 1e-5 runs plateau at 0.0023-0.0025 by 100-150 s. The evolutionary
+  search reaches 0.0022 after 2360 s awake with 507 shapes, still falling.
+  λ = 3e-7 reaches 0.0011 at 486 s with 379 shapes: below the evolutionary
+  curve at every time after ~20 s, with fewer shapes.
+- The evolutionary result scores 0.0019 on its own renderer against 0.0022
+  on resvg: without anti-aliasing it partly fits its own aliasing.
+- One thread is as fast as four at this size. Glazing is slower (342 s) and
+  no better.
+
+## Fifth iteration: extended run at full resolution
+
+Goal (from the user): the large Mona Lisa (960x1431) has too few shapes
+(82 at λ = 1e-5); run far longer with many more.
+
+Known:
+- No result so far shows a plateau: over the last two thirds (in log time)
+  every run's MSE falls as a power law (slopes -0.16 to -0.49) with the
+  shape count still rising; part of the splat runs' final fall is the edge
+  ramp, a one-off.
+- Prune, relocate, reorder and the final greedy prune held dense (N, H, W)
+  tensors: ~450 MB each at 82 shapes, over 5 GB at 1000 shapes at full
+  size, on an 8 GB machine. They now use sparse (shape, pixel) pairs within
+  each footprint (`soft_pairs`, `hard_pairs`, `removal_cost_pairs`,
+  `move_cost_pairs`), equal to the dense versions by test; a test fails if
+  density control or the final prune evaluates dense coverage.
+- At full size a training step takes ~1.5 s with 82 or 2000 shapes; the
+  sparse costs take 0.3-0.6 s.
+
+Run: λ = 1e-7, 20000 steps, progressive from 240 px with all expansions by
+25% of the run, snapshots every 250 steps, under `caffeinate -ims`
+(`out/mona-long`).
+
+Assumptions:
+- The tuned constants (λ = 1e-5, 128 px, 2500 steps) remain adequate at
+  λ = 1e-7 and 8x the steps; the schedule stretches with `iters`.
+- Shape count will be limited by λ rather than by growth: 84 density steps.
+
+Results (12.6 h, not the estimated 6-7):
+- 1090 shapes, MSE 0.00439 at 960x1431, against 82 shapes and 0.00591.
+  Visually far better: features, hands and landscape are recognisable.
+- The 240 px phase took 9 min to reach 383 shapes; at expansion the full-size
+  MSE was 0.00466. The remaining 12 h added ~700 shapes for 6% lower MSE and
+  modest visible detail. Shape growth was still 14 spawns per density step
+  at the end (not λ-limited).
+- Full-size MSE is dominated by fine texture (craquelure, grain): the source
+  downsampled and upsampled again scores 0.00431 from 120 px, 0.00397 from
+  240 px, 0.00355 from 480 px. 1090 ellipses score worse than a perfect
+  120 px image, so MSE at this size barely measures what the shapes achieve.
+- Full-size cost: ~1.9 s per training step (benchmark 1.5 s) and roughly
+  4-5 min per density step, ~4 h of the total. Not yet profiled.
+
 ## Possible next steps
 
 - Restarts or a small population over the stochasticity identified above.

@@ -9,16 +9,22 @@ from PIL import Image
 from splatlisa.render import (
     alphas,
     composite,
+    composite_pairs,
     coverage,
     hard_alphas,
+    hard_pairs,
     make_params,
     move_cost,
+    move_cost_pairs,
     mse,
     pixel_grid,
+    reindex,
     removal_cost,
+    removal_cost_pairs,
     render,
     render_dense,
     render_hard,
+    soft_pairs,
 )
 from splatlisa.svg import to_svg
 
@@ -197,3 +203,51 @@ def test_culled_render_of_no_shapes_is_background():
     p = {k: v[:0] for k, v in make_params([[1, 1]], [[1, 1]], [0], [[0, 0, 0]], [0.5]).items()}
     bg = torch.tensor([0.0, 1.0, -1.0])
     assert torch.allclose(render(p, bg, 4, 5, 1.0), torch.sigmoid(bg)[:, None, None].expand(3, 4, 5))
+
+
+def overlapping_shapes(n=14, h=23, w=29, seed=8):
+    g = torch.Generator().manual_seed(seed)
+    p = make_params(
+        torch.rand(n, 2, generator=g) * torch.tensor([w + 8.0, h + 8.0]) - 4,  # some partly off-canvas
+        torch.rand(n, 2, generator=g) * 9 + 0.7,
+        torch.rand(n, generator=g) * math.pi,
+        torch.rand(n, 3, generator=g),
+        torch.rand(n, generator=g) * 0.9 + 0.05,
+    )
+    return p, torch.rand(3, generator=g), torch.rand(3, h, w, generator=g)
+
+
+def dense_hard(p, h, w):
+    return hard_alphas(p, h, w, ss=2)
+
+
+@pytest.mark.parametrize("order", [None, [5, 0, 13, 2, 9, 7], list(range(13, -1, -1))])
+def test_sparse_costs_match_dense(order):
+    """Sparse composite, removal and move costs equal the dense ones, also
+    after reindexing to a subset in a new order."""
+    p, bg, target = overlapping_shapes()
+    _, h, w = target.shape
+    colour = torch.sigmoid(p["col"])
+    a, pairs = dense_hard(p, h, w), hard_pairs(p, h, w, ss=2)
+    assert torch.allclose(pairs_to_dense(pairs), a, atol=1e-6)
+    if order is not None:
+        order = torch.tensor(order)
+        a, colour, pairs = a[order], colour[order], reindex(pairs, order)
+    assert torch.allclose(composite_pairs(pairs, colour, bg), composite(a, colour, bg), atol=1e-6)
+    assert torch.allclose(removal_cost_pairs(pairs, colour, bg, target), removal_cost(a, colour, bg, target), atol=1e-7)
+    for got, want in zip(move_cost_pairs(pairs, colour, bg, target), move_cost(a, colour, bg, target)):
+        assert torch.allclose(got, want, atol=1e-7)
+
+
+def pairs_to_dense(pairs):
+    out = torch.zeros(pairs.n, pairs.h * pairs.w)
+    out[pairs.ids, pairs.pix] = pairs.alpha
+    return out.reshape(pairs.n, pairs.h, pairs.w)
+
+
+def test_soft_pairs_match_dense_ramp_alphas():
+    # The ramp edge is exactly zero beyond half a pixel, inside the footprint margin.
+    p, _, target = overlapping_shapes(seed=9)
+    _, h, w = target.shape
+    dense = alphas(p, pixel_grid(h, w), 0.5, ramp=True)
+    assert torch.allclose(pairs_to_dense(soft_pairs(p, h, w, 0.5, ramp=True)), dense, atol=1e-6)

@@ -8,6 +8,7 @@ sRGB, on top of an opaque background colour.
 from __future__ import annotations
 
 import math
+from typing import NamedTuple
 
 import torch
 from torch import Tensor
@@ -194,8 +195,126 @@ def hard_alphas(p: dict[str, Tensor], h: int, w: int, ss: int = 4) -> Tensor:
 
 @torch.no_grad()
 def render_hard(p: dict[str, Tensor], bg_logit: Tensor, h: int, w: int, ss: int = 4) -> Tensor:
-    a = hard_alphas(p, h, w, ss)
-    return composite(a, torch.sigmoid(p["col"]), torch.sigmoid(bg_logit))
+    return composite_pairs(hard_pairs(p, h, w, ss), torch.sigmoid(p["col"]), torch.sigmoid(bg_logit))
+
+
+# Sparse layers: the dense functions above hold (N, H, W) tensors, which at
+# full resolution and thousands of shapes exceed memory. The equivalents
+# below hold one value per (shape, pixel) pair within each shape's bounding
+# box, as `render` does.
+
+class Pairs(NamedTuple):
+    """Alpha of shape `ids[k]` at pixel `pix[k]` (flat index), sorted by
+    pixel then shape. Shapes absent from a pixel have alpha zero there."""
+    ids: Tensor
+    pix: Tensor
+    alpha: Tensor
+    n: int
+    h: int
+    w: int
+
+
+@torch.no_grad()
+def soft_pairs(p: dict[str, Tensor], h: int, w: int, tau: float, ramp: bool = False) -> Pairs:
+    ids, pix = footprint(p, h, w, edge_margin(tau, ramp))
+    q = {k: v[ids] for k, v in p.items()}
+    centres = torch.stack([pix % w, pix // w], dim=1).float() + 0.5
+    return Pairs(ids, pix, _pair_alpha(q, centres, tau, ramp), p["mu"].shape[0], h, w)
+
+
+@torch.no_grad()
+def hard_pairs(p: dict[str, Tensor], h: int, w: int, ss: int = 4) -> Pairs:
+    """As `hard_alphas`, sparse."""
+    ids, pix = footprint(p, h, w, 0.0)
+    sub = (torch.arange(ss, device=pix.device, dtype=torch.float32) + 0.5) / ss
+    sy, sx = torch.meshgrid(sub, sub, indexing="ij")
+    offsets = torch.stack([sx.flatten(), sy.flatten()], dim=1)  # (ss*ss, 2)
+    alpha = torch.empty(ids.shape[0], device=pix.device)
+    step = max(1, int(4e7 // (ss * ss * 8)))
+    for i in range(0, ids.shape[0], step):
+        j, q = ids[i : i + step], pix[i : i + step]
+        corner = torch.stack([q % w, q // w], dim=1).float()
+        d = corner[:, None] + offsets[None] - p["mu"][j][:, None]
+        e = lambda x: x[j][:, None]
+        cov = _cover(d, e(p["theta"]), e(torch.exp(p["log_s"][:, 0])), e(torch.exp(p["log_s"][:, 1])), None, False)
+        alpha[i : i + step] = cov.mean(1) * torch.sigmoid(p["op"][j])
+    return Pairs(ids, pix, alpha, p["mu"].shape[0], h, w)
+
+
+@torch.no_grad()
+def reindex(pairs: Pairs, order: Tensor) -> Pairs:
+    """The pairs of the shape list `old[order]`: shapes omitted are removed."""
+    new = torch.full((pairs.n,), -1, dtype=torch.long, device=pairs.ids.device)
+    new[order] = torch.arange(order.shape[0], device=order.device)
+    ids = new[pairs.ids]
+    kept = ids >= 0
+    ids, pix, alpha = ids[kept], pairs.pix[kept], pairs.alpha[kept]
+    sort = torch.argsort(pix * order.shape[0] + ids)
+    return Pairs(ids[sort], pix[sort], alpha[sort], order.shape[0], pairs.h, pairs.w)
+
+
+@torch.no_grad()
+def _stack(pairs: Pairs, colour: Tensor, bg: Tensor):
+    """Per pair: transmittance T of the layers above, composite B of the
+    layers beneath (3 channels), and transmittance P of the layers beneath;
+    and the image, (H*W, 3). Each pixel's list is traversed by rank."""
+    ids, pix, a = pairs.ids, pairs.pix, pairs.alpha
+    m, hw = ids.shape[0], pairs.h * pairs.w
+    c = colour[ids]
+    per_pixel = torch.bincount(pix, minlength=hw)
+    rank = torch.arange(m, device=pix.device) - (torch.cumsum(per_pixel, 0) - per_pixel)[pix]
+    by_rank = torch.argsort(rank, stable=True)
+    ends = torch.cumsum(torch.bincount(rank), 0).tolist() if m else []
+    groups = [by_rank[s:e] for s, e in zip([0] + ends[:-1], ends)]
+    t, below, beneath = torch.empty(m, device=pix.device), torch.empty(m, 3, device=pix.device), torch.empty(m, device=pix.device)
+    img = bg.expand(hw, 3).clone()
+    trans = torch.ones(hw, device=pix.device)
+    for g in groups:
+        q, ag = pix[g], a[g][:, None]
+        below[g], beneath[g] = img[q], trans[q]
+        img[q] = img[q] * (1 - ag) + ag * c[g]
+        trans[q] = trans[q] * (1 - a[g])
+    trans.fill_(1)
+    for g in reversed(groups):
+        q = pix[g]
+        t[g] = trans[q]
+        trans[q] = trans[q] * (1 - a[g])
+    return t, below, beneath, img
+
+
+@torch.no_grad()
+def composite_pairs(pairs: Pairs, colour: Tensor, bg: Tensor) -> Tensor:
+    img = _stack(pairs, colour, bg)[3]
+    return img.T.reshape(3, pairs.h, pairs.w)
+
+
+@torch.no_grad()
+def removal_cost_pairs(pairs: Pairs, colour: Tensor, bg: Tensor, target: Tensor) -> Tensor:
+    """As `removal_cost`, sparse: removal changes only pixels in a shape's
+    footprint, by T a (B - c) as there."""
+    t, below, _, img = _stack(pairs, colour, bg)
+    a = pairs.alpha[:, None]
+    err = (img - target.reshape(3, -1).T)[pairs.pix]
+    d = t[:, None] * a * (below - colour[pairs.ids])
+    per_pair = (2 * err * d + d * d).sum(1)
+    total = torch.zeros(pairs.n, device=a.device).index_add_(0, pairs.ids, per_pair)
+    return total / (3 * pairs.h * pairs.w)
+
+
+@torch.no_grad()
+def move_cost_pairs(pairs: Pairs, colour: Tensor, bg: Tensor, target: Tensor) -> tuple[Tensor, Tensor]:
+    """As `move_cost`, sparse."""
+    t, below, beneath, img = _stack(pairs, colour, bg)
+    a, c = pairs.alpha[:, None], colour[pairs.ids]
+    goal = target.reshape(3, -1).T[pairs.pix]
+    now = img[pairs.pix]
+    base = ((now - goal) ** 2).sum(1)
+    without = now + t[:, None] * a * (below - c)
+    top = ((without * (1 - a) + a * c - goal) ** 2).sum(1) - base
+    bottom = ((without + (beneath * t)[:, None] * a * (c - bg) - goal) ** 2).sum(1) - base
+    scale = 3 * pairs.h * pairs.w
+    gather = lambda v: torch.zeros(pairs.n, device=a.device).index_add_(0, pairs.ids, v) / scale
+    return gather(top), gather(bottom)
 
 
 def mse(img: Tensor, target: Tensor) -> Tensor:

@@ -19,7 +19,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from .model import Model
-from .render import FIELDS, alphas, inv_sigmoid, move_cost, pixel_grid, removal_cost
+from .render import FIELDS, Pairs, inv_sigmoid, move_cost_pairs, reindex, removal_cost_pairs, soft_pairs
 
 # Radius of a disc with the same area as a square of half-width h, over h.
 DISC_PER_BOX = 2 / math.sqrt(math.pi)
@@ -285,8 +285,7 @@ def relocate(
         return 0
     p = model.detached()
     _, h, w = target.shape
-    a = alphas(p, pixel_grid(h, w, device=model.device), tau)
-    cost = removal_cost(a, torch.sigmoid(p["col"]), torch.sigmoid(model.bg), target)
+    cost = removal_cost_pairs(soft_pairs(p, h, w, tau), torch.sigmoid(p["col"]), torch.sigmoid(model.bg), target)
     cands = spawn_candidates(img, target, half_widths, k, 0.0)
     # Spawn gains are summed squared error; convert to MSE.
     pairs = select_relocations(cost, [c[4] / (3 * h * w) for c in cands], margin)
@@ -307,12 +306,12 @@ def reorder(model: Model, target: Tensor, tau: float, max_moves: int, min_gain: 
         return 0
     p = model.detached()
     _, h, w = target.shape
-    a = alphas(p, pixel_grid(h, w, device=model.device), tau)
+    pairs = soft_pairs(p, h, w, tau)
     colour, bg = torch.sigmoid(p["col"]), torch.sigmoid(model.bg)
     perm = torch.arange(model.n, device=model.device)
     moves = 0
     for _ in range(max_moves):
-        top, bottom = move_cost(a[perm], colour[perm], bg, target)
+        top, bottom = move_cost_pairs(reindex(pairs, perm), colour[perm], bg, target)
         i_top, i_bot = int(torch.argmin(top)), int(torch.argmin(bottom))
         if min(float(top[i_top]), float(bottom[i_bot])) >= -min_gain:
             break
@@ -343,8 +342,7 @@ def prune(model: Model, target: Tensor, tau: float, lam: float, min_opacity: flo
         return 0
     p = model.detached()
     _, h, w = target.shape
-    a = alphas(p, pixel_grid(h, w, device=model.device), tau)
-    cost = removal_cost(a, torch.sigmoid(p["col"]), torch.sigmoid(model.bg), target)
+    cost = removal_cost_pairs(soft_pairs(p, h, w, tau), torch.sigmoid(p["col"]), torch.sigmoid(model.bg), target)
     mask = select_prunable(cost, torch.sigmoid(p["op"]), lam, min_opacity, max_remove)
     if not mask.any():
         return 0
@@ -353,12 +351,12 @@ def prune(model: Model, target: Tensor, tau: float, lam: float, min_opacity: flo
 
 
 @torch.no_grad()
-def greedy_prune(alpha: Tensor, colour: Tensor, bg: Tensor, target: Tensor, lam: float) -> Tensor:
+def greedy_prune(pairs: Pairs, colour: Tensor, bg: Tensor, target: Tensor, lam: float) -> Tensor:
     """Repeatedly remove the shape whose removal most improves the fitness
     `MSE + lam * N`, until none does. Exact; returns the kept indices."""
-    keep = torch.arange(alpha.shape[0], device=alpha.device)
+    keep = torch.arange(pairs.n, device=colour.device)
     while keep.numel():
-        cost = removal_cost(alpha[keep], colour[keep], bg, target)
+        cost = removal_cost_pairs(reindex(pairs, keep), colour[keep], bg, target)
         i = int(torch.argmin(cost))
         if cost[i] >= lam:
             break

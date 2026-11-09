@@ -48,3 +48,45 @@ def test_glaze_layers_are_added_during_training(tmp_path):
     assert any("glaze+" in e and "glaze+0" not in e for e in events)
     s = score(str(tmp_path / "out" / "best.svg"), str(src), 1e-5, background="#000000")
     assert abs(s["mse"] - result["mse"]) < 0.1 * result["mse"] + 1e-4
+
+
+def test_progressive_resolution_expands_to_full_size(tmp_path):
+    h, w = 32, 40
+    yy, xx = np.mgrid[0:h, 0:w] + 0.5
+    img = np.full((h, w, 3), 0.5, dtype=np.float32)
+    img[(xx - 12) ** 2 + (yy - 12) ** 2 < 49] = [0.9, 0.2, 0.1]
+    src = tmp_path / "src.png"
+    Image.fromarray((img * 255).astype(np.uint8)).save(src)
+    cfg = Config(image=str(src), out=str(tmp_path / "out"), iters=300, lam=1e-4, device="cpu",
+                 densify_from=50, densify_every=50, log_every=1000, snapshot_every=100,
+                 min_size=10, expand_by=0.5)
+    result = train(cfg)
+    run = json.loads((tmp_path / "out" / "run.json").read_text())
+    sizes = [tuple(r["size"]) for r in run["log"]]
+    assert sizes[0] == (10, 8) and sizes[-1] == (40, 32)
+    assert sum("expand to" in r["event"] for r in run["log"]) == 2
+    # Snapshots are in full-size coordinates, and the result is scored at full size.
+    assert 'width="40" height="32"' in (tmp_path / "out" / "frames" / "000000.svg").read_text()
+    s = score(str(tmp_path / "out" / "best.svg"), str(src), 1e-4, background="#000000")
+    assert abs(s["mse"] - result["mse"]) < 0.1 * result["mse"] + 1e-4
+    assert result["mse"] < 0.2 * float(((img - img.reshape(-1, 3).mean(0)) ** 2).mean())
+
+
+def test_density_control_and_final_prune_never_evaluate_every_shape_everywhere(tmp_path, monkeypatch):
+    # Dense (N, H, W) evaluation goes through `coverage`; at full resolution
+    # with thousands of shapes it exceeds memory, so only the sparse pairs may
+    # be used. Relocation and reordering are on by default.
+    import splatlisa.render
+
+    def dense(*_):
+        raise AssertionError("dense coverage evaluated")
+    monkeypatch.setattr(splatlisa.render, "coverage", dense)
+    h, w = 24, 30
+    yy, xx = np.mgrid[0:h, 0:w] + 0.5
+    img = np.full((h, w, 3), 0.5, dtype=np.float32)
+    img[(xx - 10) ** 2 + (yy - 10) ** 2 < 36] = [0.9, 0.2, 0.1]
+    src = tmp_path / "src.png"
+    Image.fromarray((img * 255).astype(np.uint8)).save(src)
+    cfg = Config(image=str(src), out=str(tmp_path / "out"), iters=120, lam=1e-4, device="cpu",
+                 densify_from=20, densify_every=20, log_every=1000, snapshot_every=1000)
+    assert train(cfg)["n"] >= 1
