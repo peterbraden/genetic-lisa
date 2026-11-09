@@ -1,0 +1,25 @@
+[project]
+name = "splatlisa"
+version = "0.1.0"
+description = "Approximate an image with translucent SVG ellipses using splatting-style optimisation"
+requires-python = ">=3.11"
+dependencies = [
+    "torch>=2.4",
+    "numpy>=1.26",
+    "pillow>=10",
+    "resvg-py>=0.5.0",
+]
+
+[dependency-groups]
+dev = [
+    "optuna>=5.0.0",
+    "pytest>=8",
+]
+
+[project.scripts]
+splatlisa = "splatlisa.train:main"
+splatlisa-score = "splatlisa.score:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

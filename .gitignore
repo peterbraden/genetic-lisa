@@ -4,3 +4,9 @@ best.json
 best.svg
 best.png
 weighting.png
+.venv
+__pycache__
+.pytest_cache
+splat/out
+splat/corpus/
+splat/tuning/
