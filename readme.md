@@ -154,3 +154,71 @@ the draw functions to use Bresenheim's algorithm.
 
 
 ## 2026
+
+The current implementation, in [`splat/`](./splat/README.md), abandons random
+mutation for directed optimisation, borrowing from 3D Gaussian Splatting. The
+image is still a stack of translucent ellipses, but every parameter of every
+ellipse is adjusted on every step by gradient descent through a differentiable
+renderer. Shapes are added and removed by rule rather than by chance:
+
+- spawn: a new ellipse where a flat patch would most reduce the error;
+- clone and split: shapes whose position gradient stays large are duplicated
+  or divided;
+- prune: a shape is removed when its exact contribution to the error is worth
+  less than its cost.
+
+Fitness is `MSE + λ·N`: each ellipse must reduce the mean squared error by at
+least `λ` to be kept, so `λ` sets the trade between detail and shape count.
+Training can also begin on a reduced image and enlarge it in stages, which
+settles the broad composition in seconds.
+
+Against the 2017 Rust version on the same image, the directed method falls
+faster after the first few seconds; at a low `λ` it reaches half the error in
+minutes, with fewer shapes than the evolutionary result reached in 40 minutes.
+Current work concerns long runs at full resolution (1090 ellipses on a
+960x1431 Mona Lisa), where most of the remaining error is craquelure and
+grain that ellipses cannot represent. Design notes and results are in
+[`plan.md`](./plan.md).
+
+#### Gallery
+
+<h4>Mona Lisa, 960x1431, 1090 ellipses (λ = 1e-7, 20,000 steps)</h4>
+<p align="center">
+  <img width="448" src="./images/splat-1090-mona-large.svg">
+  <img width="300" src="./images/splat-mona-large-anim.gif">
+</p>
+
+<h4>Source, 82 ellipses (λ = 1e-5), 1090 ellipses (λ = 1e-7)</h4>
+<p align="center">
+  <img src="./images/splat-mona-large-comparison.jpg">
+</p>
+
+<h4>Mona Lisa, 200x311, as λ falls: 38, 54, 99, 168 and 379 ellipses</h4>
+<p align="center">
+  <img width="160" src="./images/splat-38.svg">
+  <img width="160" src="./images/splat-54.svg">
+  <img width="160" src="./images/splat-99.svg">
+  <img width="160" src="./images/splat-168.svg">
+  <img width="160" src="./images/splat-379.svg">
+</p>
+
+<h4>Progress: coarse to fine resolution (84 ellipses), and λ = 3e-7 (379 ellipses)</h4>
+<p align="center">
+  <img width="200" src="./images/splat-progressive-anim.gif">
+  <img width="200" src="./images/splat-low-lambda-anim.gif">
+</p>
+
+<h4>Girl with a Pearl Earring (67 ellipses) and Mondrian (58 ellipses), 128 px</h4>
+<p align="center">
+  <img width="216" height="256" src="./images/splat-67-pearl-earring.svg">
+  <img width="252" height="256" src="./images/splat-58-mondrian.svg">
+</p>
+
+<h4>Error against processing time, all scored by the same SVG renderer</h4>
+<p align="center">
+  <img src="./images/splat-error-against-time.png">
+</p>
+
+The evolutionary baseline is in black, with time spent asleep removed. The
+λ = 1e-5 runs flatten by about 150 seconds, near the shape count their
+penalty allows; the λ = 3e-7 run lies below the evolutionary curve from about 20 seconds.
