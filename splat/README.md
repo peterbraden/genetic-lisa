@@ -105,6 +105,25 @@ original dense renderer on Apple MPS; with culling, a λ = 1e-5 run takes about
 For comparison, the best earlier evolutionary result, `images/36m.svg`, uses
 140 shapes (circles, polygons and rectangles) for an MSE of 0.00272.
 
+## As compression
+
+`scripts/rd.py` measures error against file size for compact SVGs
+(`splatlisa/minify.py`, ~89 bytes per ellipse, ~19 gzipped) against JPEG,
+WebP and AVIF, including downscaled encodes. On the Mona Lisa the ellipses
+follow MSE ∝ N^-0.6 with no knee, and every codec has lower MSE at equal
+gzipped size: JPEG by 1.4-1.7x, AVIF by 2.2-3.1x, the gap narrowest at
+0.5-2 kB. Details in `investigations/compression.md`.
+
+A packed binary format, estimated by `splatlisa/packed.py` (quantised fields,
+5-7 bytes per ellipse), is four times smaller than the gzipped SVG. Below
+500 B it matches WebP on MSE, and on LPIPS it leads every codec up to 3 kB
+(`scripts/lowrate.py`).
+
+```
+uv run --with matplotlib python scripts/rd.py ../couch-db/_attachments/image/lisa.jpg out/rd/lam-* --out out/rd/rd.png
+uv run --with matplotlib --with lpips python scripts/lowrate.py ../couch-db/_attachments/image/lisa.jpg out/rd/lam-* --out out/rd/lowrate.png
+```
+
 ## Observations
 
 - Fitness plateaus once spawning finds no site worth `λ`; the ellipse count
