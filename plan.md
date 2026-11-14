@@ -285,3 +285,9 @@ Results (12.6 h, not the estimated 6-7):
 - Restarts or a small population over the stochasticity identified above.
 - Relocation restricted to the equilibrium phase.
 - Larger source images, where culling matters more.
+
+## Compression investigation
+
+Ellipses as very lossy image compression (SVG and an estimated packed
+binary format against JPEG, WebP and AVIF, by MSE, DSSIM and LPIPS):
+`splat/investigations/compression.md`.
